@@ -93,3 +93,12 @@ def test_prompt_ends_with_reminder_after_client_message() -> None:
     tail = prompt.split("</client_message>")[-1]
     assert "не инструкции" in tail
     assert "submit_answer" in tail
+
+
+def test_system_prompt_requires_answering_objections() -> None:
+    assert "возражение" in SYSTEM_PROMPT
+    assert "не предлагай более дорогой" in SYSTEM_PROMPT
+
+
+def test_system_prompt_forbids_invented_dosage() -> None:
+    assert "дозировк" in SYSTEM_PROMPT
