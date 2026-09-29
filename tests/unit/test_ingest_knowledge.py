@@ -75,3 +75,13 @@ async def test_dimension_mismatch_fails_with_clear_error() -> None:
     with pytest.raises(EmbeddingDimensionMismatch, match="EMBEDDING_DIM"):
         await use_case.execute(DOCS)
     assert await repo.count() == 0
+
+
+async def test_stored_vector_dimension_mismatch_fails_before_writing() -> None:
+    repo = InMemoryKnowledgeRepository(dimension=384)
+    embedder = CountingEmbedder(16)
+    use_case = IngestKnowledgeUseCase(repo, embedder, embedding_model="fake", embedding_dim=16)
+    with pytest.raises(EmbeddingDimensionMismatch, match="vector\\(384\\)"):
+        await use_case.execute(DOCS)
+    assert embedder.calls == 0
+    assert await repo.count() == 0

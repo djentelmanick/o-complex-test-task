@@ -16,3 +16,7 @@ class LLMInvalidOutput(DomainError):
 
 class EmbeddingDimensionMismatch(DomainError):
     pass
+
+
+class KnowledgeBaseUnavailable(DomainError):
+    pass

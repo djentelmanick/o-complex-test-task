@@ -11,7 +11,7 @@ from starlette.datastructures import MutableHeaders
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
-from app.domain.errors import LeadNotFound, LLMUnavailable
+from app.domain.errors import KnowledgeBaseUnavailable, LeadNotFound, LLMUnavailable
 
 logger = logging.getLogger(__name__)
 
@@ -39,6 +39,42 @@ class RequestIdMiddleware:
         await self.app(scope, receive, send_with_id)
 
 
+class UnhandledErrorMiddleware:
+    """Превращает неожиданные исключения в 500 внутри нашего стека middleware.
+
+    Обработчик Exception в Starlette срабатывает во внешнем ServerErrorMiddleware, и такой
+    ответ уходит без X-Request-ID и security-заголовков.
+    """
+
+    def __init__(self, app: ASGIApp) -> None:
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+        response_started = False
+
+        async def tracking_send(message: Message) -> None:
+            nonlocal response_started
+            if message["type"] == "http.response.start":
+                response_started = True
+            await send(message)
+
+        try:
+            await self.app(scope, receive, tracking_send)
+        except Exception:
+            if response_started:
+                raise
+            logger.exception("unhandled error")
+            request_id = scope.get("state", {}).get("request_id")
+            response = JSONResponse(
+                status_code=500,
+                content={"detail": "Внутренняя ошибка сервера", "request_id": request_id},
+            )
+            await response(scope, receive, send)
+
+
 def error_response(
     request: Request,
     status_code: int,
@@ -59,6 +95,11 @@ async def _llm_unavailable(request: Request, exc: Exception) -> JSONResponse:
     return error_response(request, 503, "Сервис временно недоступен, попробуйте позже")
 
 
+async def _knowledge_unavailable(request: Request, exc: Exception) -> JSONResponse:
+    logger.error("knowledge base unavailable: %s", exc)
+    return error_response(request, 503, "База знаний недоступна, попробуйте позже")
+
+
 async def _http_error(request: Request, exc: Exception) -> JSONResponse:
     http_exc = cast(StarletteHTTPException, exc)
     return error_response(
@@ -77,15 +118,10 @@ async def _rate_limited(request: Request, exc: Exception) -> JSONResponse:
     return error_response(request, 429, "Слишком много запросов, попробуйте позже")
 
 
-async def _unhandled(request: Request, exc: Exception) -> JSONResponse:
-    logger.exception("unhandled error", exc_info=exc)
-    return error_response(request, 500, "Внутренняя ошибка сервера")
-
-
 def install_error_handlers(app: FastAPI) -> None:
     app.add_exception_handler(LeadNotFound, _lead_not_found)
     app.add_exception_handler(LLMUnavailable, _llm_unavailable)
+    app.add_exception_handler(KnowledgeBaseUnavailable, _knowledge_unavailable)
     app.add_exception_handler(RateLimitExceeded, _rate_limited)
     app.add_exception_handler(StarletteHTTPException, _http_error)
     app.add_exception_handler(RequestValidationError, _validation_error)
-    app.add_exception_handler(Exception, _unhandled)

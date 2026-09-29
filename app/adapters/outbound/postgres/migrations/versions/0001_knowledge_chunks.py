@@ -19,7 +19,7 @@ depends_on = None
 
 def upgrade() -> None:
     op.execute("CREATE EXTENSION IF NOT EXISTS vector")
-    dim = int(os.environ.get("EMBEDDING_DIM", "1024"))
+    dim = int(os.environ.get("EMBEDDING_DIM", "384"))
     op.create_table(
         "knowledge_chunks",
         sa.Column("id", sa.Text(), primary_key=True),

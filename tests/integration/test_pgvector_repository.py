@@ -9,6 +9,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from app.adapters.outbound.postgres.repository import PgVectorKnowledgeRepository
+from app.domain.errors import KnowledgeBaseUnavailable
 from tests.fakes import make_chunk
 
 pytestmark = pytest.mark.integration
@@ -37,7 +38,9 @@ async def repo(monkeypatch: pytest.MonkeyPatch) -> AsyncIterator[PgVectorKnowled
     await alembic(monkeypatch, "downgrade", "base")
     await alembic(monkeypatch, "upgrade", "head")
     engine = create_async_engine(os.environ["TEST_DATABASE_URL"])
-    yield PgVectorKnowledgeRepository(async_sessionmaker(engine, expire_on_commit=False))
+    yield PgVectorKnowledgeRepository(
+        async_sessionmaker(engine, expire_on_commit=False), embedding_model="model-a"
+    )
     await engine.dispose()
 
 
@@ -99,3 +102,31 @@ async def test_delete_documents(repo: PgVectorKnowledgeRepository) -> None:
     await repo.replace_document("b", "h2", [make_chunk("b")], [[0.0, 1.0, 0.0]])
     await repo.delete_documents(["a"])
     assert await repo.document_hashes() == {"b": "h2"}
+
+
+async def test_vectors_of_another_embedding_model_are_invisible(
+    repo: PgVectorKnowledgeRepository,
+) -> None:
+    await repo.replace_document("a", "h1", [make_chunk("a")], [[1.0, 0.0, 0.0]])
+    engine = create_async_engine(os.environ["TEST_DATABASE_URL"])
+    other = PgVectorKnowledgeRepository(
+        async_sessionmaker(engine, expire_on_commit=False), embedding_model="model-b"
+    )
+    assert await other.count() == 0
+    assert await other.document_hashes() == {}
+    assert await other.search([1.0, 0.0, 0.0], limit=4, min_score=0.0) == []
+    await other.replace_document("a", "h2", [make_chunk("a")], [[0.0, 1.0, 0.0]])
+    await engine.dispose()
+    assert await repo.count() == 0
+
+
+async def test_reports_stored_vector_dimension(repo: PgVectorKnowledgeRepository) -> None:
+    assert await repo.embedding_dimension() == int(TEST_DIM)
+
+
+async def test_search_with_wrong_dimension_is_domain_error(
+    repo: PgVectorKnowledgeRepository,
+) -> None:
+    await repo.replace_document("a", "h1", [make_chunk("a")], [[1.0, 0.0, 0.0]])
+    with pytest.raises(KnowledgeBaseUnavailable):
+        await repo.search([1.0, 0.0], limit=4, min_score=0.0)

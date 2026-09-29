@@ -15,5 +15,6 @@ class KnowledgeChunkRow(Base):
     title: Mapped[str] = mapped_column(Text)
     content: Mapped[str] = mapped_column(Text)
     content_hash: Mapped[str] = mapped_column(Text)
+    embedding_model: Mapped[str] = mapped_column(Text)
     # Размерность фиксируется миграцией (EMBEDDING_DIM), модель ORM от неё не зависит
     embedding: Mapped[list[float]] = mapped_column(Vector())

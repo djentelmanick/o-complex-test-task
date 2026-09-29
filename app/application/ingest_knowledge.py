@@ -33,6 +33,7 @@ class IngestKnowledgeUseCase:
         self._max_chunk_chars = max_chunk_chars
 
     async def execute(self, documents: Sequence[SourceDocument]) -> IngestReport:
+        await self._check_stored_dimension()
         existing = await self._knowledge.document_hashes()
         indexed = skipped = 0
         for doc in documents:
@@ -51,6 +52,14 @@ class IngestKnowledgeUseCase:
         if stale:
             await self._knowledge.delete_documents(stale)
         return IngestReport(indexed=indexed, skipped=skipped, deleted=len(stale))
+
+    async def _check_stored_dimension(self) -> None:
+        stored = await self._knowledge.embedding_dimension()
+        if stored is not None and stored != self._embedding_dim:
+            raise EmbeddingDimensionMismatch(
+                f"knowledge base stores vector({stored}), but EMBEDDING_DIM={self._embedding_dim}; "
+                "recreate the database volume (docker compose down -v) after changing models"
+            )
 
     def _check_dimensions(self, vectors: list[list[float]]) -> None:
         for vector in vectors:

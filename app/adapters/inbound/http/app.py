@@ -8,7 +8,11 @@ from fastapi.staticfiles import StaticFiles
 from slowapi import Limiter
 from slowapi.util import get_remote_address
 
-from app.adapters.inbound.http.errors import RequestIdMiddleware, install_error_handlers
+from app.adapters.inbound.http.errors import (
+    RequestIdMiddleware,
+    UnhandledErrorMiddleware,
+    install_error_handlers,
+)
 from app.adapters.inbound.http.routes import build_api_router, build_service_router
 from app.adapters.inbound.http.security import (
     MAX_BODY_BYTES,
@@ -44,6 +48,9 @@ def create_app(settings: Settings, container_factory: ContainerFactory) -> FastA
     async def index() -> FileResponse:
         return FileResponse(STATIC_DIR / "index.html")
 
+    # Порядок важен: добавленный последним — внешний. Ошибки ловим глубже всех, чтобы
+    # ответ 500 прошёл через security-заголовки и получил X-Request-ID
+    app.add_middleware(UnhandledErrorMiddleware)
     app.add_middleware(BodySizeLimitMiddleware, max_bytes=MAX_BODY_BYTES)
     app.add_middleware(SecurityHeadersMiddleware)
     app.add_middleware(RequestIdMiddleware)

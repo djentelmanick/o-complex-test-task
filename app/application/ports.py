@@ -39,6 +39,8 @@ class KnowledgeRepository(Protocol):
 
     async def count(self) -> int: ...
 
+    async def embedding_dimension(self) -> int | None: ...
+
 
 class LLMClient(Protocol):
     async def complete_structured(

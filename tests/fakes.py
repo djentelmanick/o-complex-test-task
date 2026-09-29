@@ -13,8 +13,12 @@ def _cosine(a: Sequence[float], b: Sequence[float]) -> float:
 
 
 class InMemoryKnowledgeRepository:
-    def __init__(self) -> None:
+    def __init__(self, dimension: int | None = None) -> None:
         self.docs: dict[str, tuple[str, list[tuple[KnowledgeChunk, list[float]]]]] = {}
+        self.dimension = dimension
+
+    async def embedding_dimension(self) -> int | None:
+        return self.dimension
 
     async def search(
         self, vector: list[float], limit: int, min_score: float

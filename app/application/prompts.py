@@ -1,3 +1,4 @@
+import json
 from collections.abc import Sequence
 
 from app.domain.models import DialogMessage, RetrievedChunk, Role
@@ -56,8 +57,13 @@ def build_user_prompt(
     dialog: Sequence[DialogMessage],
     chunks: Sequence[RetrievedChunk],
 ) -> str:
+    # Каждое сообщение — отдельная JSON-строка: перевод строки в тексте клиента не может
+    # породить поддельную реплику менеджера
     dialog_text = (
-        "\n".join(f"[{_ROLE_LABELS[m.role]}]: {escape(m.text)}" for m in dialog)
+        "\n".join(
+            json.dumps({"role": _ROLE_LABELS[m.role], "text": escape(m.text)}, ensure_ascii=False)
+            for m in dialog
+        )
         or EMPTY_DIALOG_MARKER
     )
     knowledge_text = (

@@ -57,7 +57,6 @@ async def build_container(settings: Settings) -> AsyncIterator[Container]:
     async with AsyncExitStack() as stack:
         engine = create_async_engine(settings.database_url, pool_pre_ping=True)
         stack.push_async_callback(engine.dispose)
-        knowledge = PgVectorKnowledgeRepository(async_sessionmaker(engine, expire_on_commit=False))
         crm = MockCRMGateway.from_json_file(settings.crm_fixture_path)
 
         gigachat: GigaChatClient | None = None
@@ -82,6 +81,10 @@ async def build_container(settings: Settings) -> AsyncIterator[Container]:
             embedder = FakeEmbedder(settings.embedding_dim)
             embedding_model = "fake"
             min_score = _FAKE_MIN_SCORE
+
+        knowledge = PgVectorKnowledgeRepository(
+            async_sessionmaker(engine, expire_on_commit=False), embedding_model=embedding_model
+        )
 
         yield Container(
             answer_inquiry=AnswerInquiryUseCase(

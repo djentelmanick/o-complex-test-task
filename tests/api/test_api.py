@@ -1,8 +1,8 @@
 from collections.abc import AsyncIterator
 
-from app.domain.errors import LLMUnavailable
+from app.domain.errors import KnowledgeBaseUnavailable, LLMUnavailable
 from tests.api.conftest import API_KEY, make_client, make_container, make_settings
-from tests.fakes import ScriptedLLM
+from tests.fakes import InMemoryKnowledgeRepository, ScriptedLLM
 
 AUTH = {"X-API-Key": API_KEY}
 BODY = {"lead_id": "lead-1", "message": "Как принимать цеолит?"}
@@ -149,3 +149,28 @@ async def test_docs_are_served_without_strict_csp() -> None:
         response = await client.get("/docs")
     assert response.status_code == 200
     assert "Content-Security-Policy" not in response.headers
+
+
+async def test_unexpected_error_is_500_with_request_id_and_security_headers() -> None:
+    container = await make_container(llm=ScriptedLLM([RuntimeError("secret internal detail")]))
+    async with make_client(container=container) as client:
+        response = await client.post("/api/v1/inquiries", json=BODY, headers=AUTH)
+    assert response.status_code == 500
+    assert "secret internal detail" not in response.text
+    assert response.json()["request_id"] == response.headers["X-Request-ID"]
+    assert "Content-Security-Policy" in response.headers
+    assert response.headers["X-Content-Type-Options"] == "nosniff"
+
+
+async def test_broken_knowledge_base_is_503() -> None:
+    container = await make_container()
+
+    async def broken_search(*_: object) -> list[object]:
+        raise KnowledgeBaseUnavailable("vector dimension mismatch")
+
+    assert isinstance(container.knowledge, InMemoryKnowledgeRepository)
+    container.knowledge.search = broken_search  # type: ignore[method-assign]
+    async with make_client(container=container) as client:
+        response = await client.post("/api/v1/inquiries", json=BODY, headers=AUTH)
+    assert response.status_code == 503
+    assert "dimension" not in response.text
