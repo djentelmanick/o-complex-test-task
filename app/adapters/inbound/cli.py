@@ -40,6 +40,22 @@ async def _with_amocrm(settings: Settings, action: Callable[[Any], Awaitable[Any
 
 
 async def _amocrm_seed(settings: Settings, tools: Any) -> None:
+    # AmoCRM шлёт вебхук почти мгновенно, раньше, чем мы успеем пометить примечание обработанным,
+    # поэтому на время заливки демо-истории снимаем наш вебхук
+    paused: list[str] = []
+    if settings.amocrm_webhook_secret is not None:
+        secret = settings.amocrm_webhook_secret.get_secret_value()
+        paused = await tools.registrar.destinations_with_secret(secret)
+        for destination in paused:
+            await tools.registrar.unregister(destination)
+    try:
+        await _create_demo_leads(settings, tools)
+    finally:
+        for destination in paused:
+            await tools.registrar.register(destination)
+
+
+async def _create_demo_leads(settings: Settings, tools: Any) -> None:
     demo = await MockCRMGateway.from_json_file(settings.crm_fixture_path).list_leads()
     for lead in demo:
         lead_id = await tools.gateway.create_lead(lead.name)

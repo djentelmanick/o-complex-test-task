@@ -91,3 +91,22 @@ async def test_tunnel_url_from_ngrok_agent_api(respx_mock: respx.MockRouter) -> 
         assert await resolve_tunnel_url(http, api, delay_s=0, sleep=no_sleep) == (
             "https://abc.ngrok-free.app"
         )
+
+
+async def test_destinations_are_found_by_secret(respx_mock: respx.MockRouter) -> None:
+    ours = "https://a.ngrok-free.dev/integrations/amocrm/webhook/" + "s" * 32
+    respx_mock.get(f"{API}/webhooks").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "_embedded": {
+                    "webhooks": [
+                        {"destination": ours},
+                        {"destination": "https://other.example/hook"},
+                    ]
+                }
+            },
+        )
+    )
+    async with httpx.AsyncClient() as http:
+        assert await registrar(http).destinations_with_secret("s" * 32) == [ours]

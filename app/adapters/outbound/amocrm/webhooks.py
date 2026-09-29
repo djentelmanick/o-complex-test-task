@@ -27,6 +27,16 @@ class AmoCRMWebhookRegistrar:
     async def unregister(self, destination: str) -> None:
         await self._client.delete("/webhooks", {"destination": destination})
 
+    async def destinations_with_secret(self, secret: str) -> list[str]:
+        data = await self._client.get("/webhooks")
+        hooks = (data or {}).get("_embedded", {}).get("webhooks", [])
+        suffix = f"{WEBHOOK_PATH_PREFIX}{secret}"
+        return [
+            str(hook["destination"])
+            for hook in hooks
+            if isinstance(hook, dict) and str(hook.get("destination", "")).endswith(suffix)
+        ]
+
 
 async def resolve_tunnel_url(
     http: httpx.AsyncClient,

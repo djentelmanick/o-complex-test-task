@@ -48,11 +48,13 @@ class FakeOAuth:
 
 
 class FakeGateway:
-    def __init__(self) -> None:
+    def __init__(self, log: list[str]) -> None:
+        self.log = log
         self.leads: list[str] = []
         self.messages: list[tuple[str, Role, str]] = []
 
     async def create_lead(self, name: str) -> str:
+        self.log.append("create_lead")
         self.leads.append(name)
         return str(len(self.leads))
 
@@ -61,11 +63,27 @@ class FakeGateway:
         return f"note-{len(self.messages)}"
 
 
+class FakeRegistrar:
+    def __init__(self, log: list[str]) -> None:
+        self.log = log
+
+    async def destinations_with_secret(self, secret: str) -> list[str]:
+        return ["https://hook"]
+
+    async def unregister(self, destination: str) -> None:
+        self.log.append(f"unregister {destination}")
+
+    async def register(self, destination: str) -> None:
+        self.log.append(f"register {destination}")
+
+
 class FakeTools:
     def __init__(self) -> None:
+        self.log: list[str] = []
         self.oauth = FakeOAuth()
-        self.gateway = FakeGateway()
+        self.gateway = FakeGateway(self.log)
         self.processed_events = InMemoryProcessedEvents()
+        self.registrar = FakeRegistrar(self.log)
 
 
 def patch_container(monkeypatch: pytest.MonkeyPatch, tools: FakeTools | None) -> None:
@@ -114,3 +132,13 @@ def test_amocrm_seed_does_not_trigger_the_assistant(monkeypatch: pytest.MonkeyPa
     patch_container(monkeypatch, tools)
     assert cli.main(["amocrm-seed"]) == 0
     assert tools.processed_events.keys == {f"crm:message:note-{i}" for i in range(1, 10)}
+
+
+def test_amocrm_seed_pauses_our_webhook(monkeypatch: pytest.MonkeyPatch) -> None:
+    tools = FakeTools()
+    patch_container(monkeypatch, tools)
+    monkeypatch.setenv("AMOCRM_WEBHOOK_SECRET", "w" * 32)
+    assert cli.main(["amocrm-seed"]) == 0
+    assert tools.log[0] == "unregister https://hook"
+    assert tools.log[-1] == "register https://hook"
+    assert tools.log.count("create_lead") == 3
