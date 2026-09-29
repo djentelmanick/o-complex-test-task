@@ -78,3 +78,21 @@ def test_fallback_answer() -> None:
     assert answer.fallback is True
     assert answer.client_reply == FALLBACK_CLIENT_REPLY
     assert answer.sources == ()
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        ("Поддержит ваше здоровье.,", "Поддержит ваше здоровье."),
+        ('Начать с небольшой упаковки.\n",', "Начать с небольшой упаковки."),
+        ('Выберите "Zeolite Max"', 'Выберите "Zeolite Max"'),
+        ("Мы ценим честность! ‹/client_reply›,", "Мы ценим честность!"),
+        ("для полноценного курса,", "для полноценного курса"),
+        ("Спасибо!\\n\\nС уважением\\n", "Спасибо!\n\nС уважением"),
+        ("Без артефактов!", "Без артефактов!"),
+    ],
+)
+def test_trailing_json_artifacts_are_removed(raw: str, expected: str) -> None:
+    answer = parse_answer(valid_args(client_reply=raw, manager_hint=raw), RETRIEVED, USAGE)
+    assert answer.client_reply == expected
+    assert answer.manager_hint == expected

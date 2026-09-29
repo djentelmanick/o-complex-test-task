@@ -4,11 +4,20 @@ from app.application.output import ANSWER_SCHEMA, FUNCTION_NAME, fallback_answer
 from app.application.ports import CRMGateway, Embedder, KnowledgeRepository, LLMClient
 from app.application.prompts import SYSTEM_PROMPT, build_user_prompt
 from app.domain.errors import LLMInvalidOutput
-from app.domain.models import AssistantAnswer, Inquiry, TokenUsage
+from app.domain.models import (
+    AssistantAnswer,
+    DialogMessage,
+    Inquiry,
+    RetrievedChunk,
+    Role,
+    TokenUsage,
+)
 
 logger = logging.getLogger(__name__)
 
 _MAX_ATTEMPTS = 2
+_CONTEXT_LIMIT = 2
+_CONTEXT_CLIENT_MESSAGES = 3
 
 
 class AnswerInquiryUseCase:
@@ -31,11 +40,14 @@ class AnswerInquiryUseCase:
         self._min_score = min_score
         self._dialog_max_messages = dialog_max_messages
 
+    @property
+    def embedder(self) -> Embedder:
+        return self._embedder
+
     async def execute(self, inquiry: Inquiry) -> AssistantAnswer:
         lead = await self._crm.get_lead(inquiry.lead_id)
         dialog = lead.dialog[-self._dialog_max_messages :]
-        [vector] = await self._embedder.embed([inquiry.message])
-        retrieved = await self._knowledge.search(vector, self._retrieval_limit, self._min_score)
+        retrieved = await self._retrieve(inquiry.message, dialog)
         user_prompt = build_user_prompt(inquiry.message, dialog, retrieved)
 
         usage = TokenUsage()
@@ -49,3 +61,22 @@ class AnswerInquiryUseCase:
             except LLMInvalidOutput as exc:
                 logger.warning("invalid LLM output (attempt %d): %s", attempt, exc)
         return fallback_answer(usage)
+
+    async def _retrieve(
+        self, message: str, dialog: tuple[DialogMessage, ...]
+    ) -> list[RetrievedChunk]:
+        # Вопрос клиента находит статьи для ответа, а недавние реплики из CRM — статьи
+        # для допродажи (возражения, этап курса), которых по самому вопросу не найти
+        client_lines = [m.text for m in dialog if m.role is Role.CLIENT]
+        context = "\n".join(client_lines[-_CONTEXT_CLIENT_MESSAGES:])
+        vectors = await self._embedder.embed([message, context] if context else [message])
+
+        hits = await self._knowledge.search(vectors[0], self._retrieval_limit, self._min_score)
+        if context:
+            hits += await self._knowledge.search(vectors[1], _CONTEXT_LIMIT, self._min_score)
+
+        best: dict[str, RetrievedChunk] = {}
+        for hit in hits:
+            if hit.chunk.id not in best or hit.score > best[hit.chunk.id].score:
+                best[hit.chunk.id] = hit
+        return sorted(best.values(), key=lambda h: h.score, reverse=True)

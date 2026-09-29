@@ -21,7 +21,10 @@ class Settings(BaseSettings):
     gigachat_ca_bundle: str | None = None
     gigachat_timeout_s: float = 30.0
 
-    embedding_dim: int = Field(default=1024, gt=0)
+    embedding_provider: Literal["local", "gigachat", "fake"] = "local"
+    local_embedding_model: str = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
+    embedding_cache_dir: Path | None = None
+    embedding_dim: int = Field(default=384, gt=0)
     retrieval_limit: int = Field(default=4, gt=0)
     retrieval_min_score: float = Field(default=0.3, ge=-1.0, le=1.0)
     dialog_max_messages: int = Field(default=10, gt=0)
@@ -32,6 +35,9 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def _require_gigachat_key(self) -> Self:
-        if self.llm_provider == "gigachat" and self.gigachat_auth_key is None:
-            raise ValueError("GIGACHAT_AUTH_KEY is required when LLM_PROVIDER=gigachat")
+        uses_gigachat = "gigachat" in (self.llm_provider, self.embedding_provider)
+        if uses_gigachat and self.gigachat_auth_key is None:
+            raise ValueError(
+                "GIGACHAT_AUTH_KEY is required when LLM_PROVIDER or EMBEDDING_PROVIDER is gigachat"
+            )
         return self

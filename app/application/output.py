@@ -1,7 +1,8 @@
+import re
 from collections.abc import Sequence
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
 from app.domain.errors import LLMInvalidOutput
 from app.domain.models import (
@@ -40,12 +41,31 @@ ANSWER_SCHEMA: dict[str, Any] = {
 }
 
 
+# GigaChat иногда оставляет в конце строки хвост JSON-разметки (`.,`, `.\n",`)
+# или копирует экранированные теги из промпта (`‹/client_reply›`)
+_TRAILING_ARTIFACTS = re.compile(r"(?:\s*‹/?[a-z_]+›|[\s,])+$")
+
+
+def _strip_artifacts(text: str) -> str:
+    # Переводы строк иногда приходят экранированными дважды — литералом `\n`
+    text = _TRAILING_ARTIFACTS.sub("", text.replace("\\n", "\n"))
+    # Непарная кавычка в конце — остаток JSON-строки, парную («"Zeolite Max"») не трогаем
+    if text.endswith('"') and text.count('"') % 2 == 1:
+        text = _TRAILING_ARTIFACTS.sub("", text[:-1])
+    return text
+
+
 class _LLMAnswer(BaseModel):
     model_config = ConfigDict(extra="ignore", str_strip_whitespace=True)
 
     client_reply: str = Field(min_length=1, max_length=CLIENT_REPLY_MAX)
     manager_hint: str = Field(min_length=1, max_length=MANAGER_HINT_MAX)
     used_chunk_ids: list[str] = Field(default_factory=list, max_length=20)
+
+    @field_validator("client_reply", "manager_hint", mode="before")
+    @classmethod
+    def _strip_json_artifacts(cls, value: object) -> object:
+        return _strip_artifacts(value) if isinstance(value, str) else value
 
 
 def parse_answer(

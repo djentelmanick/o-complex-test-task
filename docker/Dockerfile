@@ -21,7 +21,12 @@ RUN /opt/venv/bin/pip install --require-hashes -r requirements-dev.txt
 FROM base AS runtime
 RUN useradd --create-home --uid 10001 app
 COPY --from=deps /opt/venv /opt/venv
-ENV PATH=/opt/venv/bin:$PATH
+ENV PATH=/opt/venv/bin:$PATH \
+    EMBEDDING_CACHE_DIR=/opt/models
+# Модель эмбеддингов скачивается при сборке, в рантайме сервис в интернет за ней не ходит
+ARG LOCAL_EMBEDDING_MODEL=sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2
+RUN python -c "import sys; from fastembed import TextEmbedding; TextEmbedding(sys.argv[1], cache_dir='/opt/models')" "$LOCAL_EMBEDDING_MODEL"
+ENV HF_HUB_OFFLINE=1
 WORKDIR /app
 COPY pyproject.toml ./
 COPY app ./app

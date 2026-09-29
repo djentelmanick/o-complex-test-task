@@ -113,3 +113,69 @@ async def test_unknown_lead_propagates_without_llm_call() -> None:
     with pytest.raises(LeadNotFound):
         await (await make_use_case(llm)).execute(Inquiry(lead_id="nope", message="?"))
     assert llm.calls == []
+
+
+class RecordingEmbedder(FakeEmbedder):
+    def __init__(self, dim: int) -> None:
+        super().__init__(dim)
+        self.calls: list[list[str]] = []
+
+    async def embed(self, texts: list[str]) -> list[list[float]]:
+        self.calls.append(texts)
+        return await super().embed(texts)
+
+
+async def make_context_use_case(
+    llm: ScriptedLLM, lead: Lead
+) -> tuple[AnswerInquiryUseCase, RecordingEmbedder]:
+    embedder = RecordingEmbedder(dim=256)
+    repo = InMemoryKnowledgeRepository()
+    await seed(
+        repo,
+        embedder,
+        [
+            make_chunk("zeolite", content="Цеолит: как принимать курсом 15 дней"),
+            make_chunk("objections", content="Дорого: предложите маленькую упаковку Zeolite Mini"),
+        ],
+    )
+    embedder.calls.clear()
+    use_case = AnswerInquiryUseCase(
+        crm=MockCRMGateway([lead]),
+        embedder=embedder,
+        knowledge=repo,
+        llm=llm,
+        retrieval_limit=1,
+        min_score=0.1,
+    )
+    return use_case, embedder
+
+
+async def test_dialog_context_adds_knowledge_for_manager_hint() -> None:
+    lead = Lead(
+        id="lead-price",
+        name="Марина",
+        dialog=(
+            DialogMessage(Role.CLIENT, "Дорого для меня, хочу маленькую упаковку"),
+            DialogMessage(Role.MANAGER, "Понимаю"),
+        ),
+    )
+    llm = ScriptedLLM([ok([])])
+    use_case, embedder = await make_context_use_case(llm, lead)
+
+    await use_case.execute(Inquiry(lead_id="lead-price", message="Как принимать цеолит курсом?"))
+
+    _, user_prompt = llm.calls[0]
+    assert '<chunk id="zeolite#0">' in user_prompt
+    assert '<chunk id="objections#0">' in user_prompt
+    assert len(embedder.calls) == 1
+    assert len(embedder.calls[0]) == 2
+
+
+async def test_without_client_messages_only_the_inquiry_is_embedded() -> None:
+    lead = Lead(id="lead-empty", name="Новый", dialog=())
+    llm = ScriptedLLM([ok([])])
+    use_case, embedder = await make_context_use_case(llm, lead)
+
+    await use_case.execute(Inquiry(lead_id="lead-empty", message="Как принимать цеолит курсом?"))
+
+    assert embedder.calls == [["Как принимать цеолит курсом?"]]

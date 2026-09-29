@@ -36,4 +36,10 @@ def test_defaults_match_spec() -> None:
     assert settings.retrieval_limit == 4
     assert settings.dialog_max_messages == 10
     assert settings.rate_limit == "10/minute"
-    assert settings.embedding_dim == 1024
+    assert settings.embedding_provider == "local"
+    assert settings.embedding_dim == 384
+
+
+def test_gigachat_embeddings_require_auth_key() -> None:
+    with pytest.raises(ValidationError, match="GIGACHAT_AUTH_KEY"):
+        make(llm_provider="fake", embedding_provider="gigachat")
