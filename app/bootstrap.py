@@ -1,7 +1,8 @@
+import asyncio
 import logging
 import ssl
 from collections.abc import AsyncIterator
-from contextlib import AsyncExitStack, asynccontextmanager
+from contextlib import AsyncExitStack, asynccontextmanager, suppress
 
 import httpx
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
@@ -97,26 +98,49 @@ def _amocrm_tools(
 
 @asynccontextmanager
 async def amocrm_webhook_registration(
-    tools: AmoCRMTools, settings: Settings, *, attempts: int = 15
+    tools: AmoCRMTools,
+    settings: Settings,
+    *,
+    attempts: int = 15,
+    registration_attempts: int = 5,
+    retry_delay_s: float = 3.0,
 ) -> AsyncIterator[None]:
-    destination: str | None = None
-    if settings.amocrm_tunnel_metrics_url and settings.amocrm_webhook_secret:
+    if not (settings.amocrm_tunnel_metrics_url and settings.amocrm_webhook_secret):
+        yield
+        return
+    metrics_url = settings.amocrm_tunnel_metrics_url
+    secret = settings.amocrm_webhook_secret.get_secret_value()
+    registered: list[str] = []
+
+    async def register() -> None:
         try:
-            public_url = await resolve_tunnel_url(
-                tools.http, settings.amocrm_tunnel_metrics_url, attempts=attempts
-            )
-            destination = webhook_destination(
-                public_url, settings.amocrm_webhook_secret.get_secret_value()
-            )
-            await tools.registrar.register(destination)
-            logger.info("AmoCRM webhook registered at %s", public_url)
+            public_url = await resolve_tunnel_url(tools.http, metrics_url, attempts=attempts)
         except DomainError as exc:
-            destination = None
             logger.warning("AmoCRM webhook registration skipped: %s", exc)
+            return
+        destination = webhook_destination(public_url, secret)
+        for attempt in range(1, registration_attempts + 1):
+            # AmoCRM проверяет адрес при регистрации, поэтому регистрируемся в фоне,
+            # когда сервер уже принимает запросы, и повторяем при отказе
+            await asyncio.sleep(retry_delay_s)
+            try:
+                await tools.registrar.register(destination)
+            except DomainError as exc:
+                logger.info("AmoCRM webhook registration attempt %d failed: %s", attempt, exc)
+                continue
+            registered.append(destination)
+            logger.info("AmoCRM webhook registered at %s", public_url)
+            return
+        logger.warning("AmoCRM webhook was not registered after %d attempts", registration_attempts)
+
+    task = asyncio.create_task(register())
     try:
         yield
     finally:
-        if destination is not None:
+        task.cancel()
+        with suppress(asyncio.CancelledError):
+            await task
+        for destination in registered:
             try:
                 await tools.registrar.unregister(destination)
             except DomainError as exc:

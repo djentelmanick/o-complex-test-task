@@ -1,3 +1,4 @@
+import asyncio
 import json
 import ssl
 
@@ -117,7 +118,11 @@ async def test_webhook_is_registered_and_removed(respx_mock: respx.MockRouter) -
     async with build_container(settings) as container:
         assert container.amocrm is not None
         container.amocrm.oauth._cached = TokenPair("t", "r", 1e12)
-        async with amocrm_webhook_registration(container.amocrm, settings):
+        async with amocrm_webhook_registration(container.amocrm, settings, retry_delay_s=0):
+            for _ in range(50):
+                if register.call_count == 1:
+                    break
+                await asyncio.sleep(0.01)
             assert register.call_count == 1
         assert unregister.call_count == 1
     destination = json.loads(register.calls[0].request.content)["destination"]
@@ -131,3 +136,28 @@ async def test_registration_failure_does_not_stop_startup(respx_mock: respx.Mock
         assert container.amocrm is not None
         async with amocrm_webhook_registration(container.amocrm, settings, attempts=1):
             pass
+
+
+async def test_registration_runs_after_startup_and_retries(respx_mock: respx.MockRouter) -> None:
+    settings = amocrm(amocrm_tunnel_metrics_url="http://tunnel:2000/quicktunnel")
+    respx_mock.get("http://tunnel:2000/quicktunnel").mock(
+        return_value=httpx.Response(200, json={"hostname": "abc.trycloudflare.com"})
+    )
+    # AmoCRM проверяет адрес при регистрации: пока сервер не слушает, отвечает 400
+    register = respx_mock.post("https://demo.amocrm.ru/api/v4/webhooks").mock(
+        side_effect=[httpx.Response(400), httpx.Response(201, json={})]
+    )
+    unregister = respx_mock.delete("https://demo.amocrm.ru/api/v4/webhooks").mock(
+        return_value=httpx.Response(204)
+    )
+    async with build_container(settings) as container:
+        assert container.amocrm is not None
+        container.amocrm.oauth._cached = TokenPair("t", "r", 1e12)
+        async with amocrm_webhook_registration(container.amocrm, settings, retry_delay_s=0):
+            assert register.call_count == 0
+            for _ in range(50):
+                if register.call_count == 2:
+                    break
+                await asyncio.sleep(0.01)
+            assert register.call_count == 2
+        assert unregister.call_count == 1
