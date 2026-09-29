@@ -44,6 +44,7 @@ pythonpath = ["."]
 testpaths = ["tests"]
 addopts = "-m 'not integration'"
 markers = ["integration: requires a running PostgreSQL with pgvector (TEST_DATABASE_URL)"]
+filterwarnings = ["ignore:.*iscoroutinefunction.*:DeprecationWarning:slowapi"]
 
 [tool.ruff]
 line-length = 100

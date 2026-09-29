@@ -1,0 +1,31 @@
+services:
+  db:
+    image: pgvector/pgvector:pg18
+    environment:
+      POSTGRES_USER: assistant
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: assistant
+    volumes:
+      - pgdata:/var/lib/postgresql
+      - ./docker/db-init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U assistant -d assistant"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+  test:
+    profiles: ["test"]
+    build:
+      context: .
+      target: test
+    environment:
+      TEST_DATABASE_URL: postgresql+asyncpg://assistant:${POSTGRES_PASSWORD}@db:5432/assistant_test
+      DATABASE_URL: postgresql+asyncpg://assistant:${POSTGRES_PASSWORD}@db:5432/assistant
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  pgdata:
