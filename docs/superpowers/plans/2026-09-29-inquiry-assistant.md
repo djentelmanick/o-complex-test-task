@@ -3167,6 +3167,7 @@ services:
       target: test
     environment:
       TEST_DATABASE_URL: postgresql+asyncpg://assistant:${POSTGRES_PASSWORD}@db:5432/assistant_test
+      DATABASE_URL: postgresql+asyncpg://assistant:${POSTGRES_PASSWORD}@db:5432/assistant
     depends_on:
       db:
         condition: service_healthy
@@ -3201,7 +3202,7 @@ RATE_LIMIT=10/minute
 `Makefile`:
 
 ```makefile
-.PHONY: up down logs test test-integration lint ingest
+.PHONY: up down logs test test-integration lint ingest migrate downgrade revision
 
 up:
 	docker compose up --build -d
@@ -3223,7 +3224,21 @@ lint:
 
 ingest:
 	docker compose exec app python -m app.adapters.inbound.cli ingest
+
+migrate:
+	docker compose run --rm --entrypoint alembic app upgrade head
+
+downgrade:
+	docker compose run --rm --entrypoint alembic app downgrade -1
+
+# Автогенерация пишет файл в смонтированный каталог миграций, поэтому запускается из test-образа
+revision:
+	docker compose --profile test run --rm --build \
+		-v ./app/adapters/outbound/postgres/migrations/versions:/app/app/adapters/outbound/postgres/migrations/versions \
+		test alembic revision --autogenerate -m "$(m)"
 ```
+
+`make migrate` / `make downgrade` используют сервис `app`, который появится в задаче 12. `make revision` запускать только после `make migrate` — autogenerate сравнивает модели с текущей схемой БД.
 
 Создать локальный `.env`: `cp .env.example .env`, заменить `APP_API_KEY` на `python3 -c "import secrets;print(secrets.token_urlsafe(32))"`, `LLM_PROVIDER=fake` (ключ GigaChat пользователь впишет сам в задаче 14).
 
@@ -3232,29 +3247,74 @@ ingest:
 `tests/integration/__init__.py` — пустой. `tests/integration/test_pgvector_repository.py`:
 
 ```python
+import asyncio
 import os
 from collections.abc import AsyncIterator
 
 import pytest
+from alembic import command
+from alembic.config import Config
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from app.adapters.outbound.postgres.models import Base
 from app.adapters.outbound.postgres.repository import PgVectorKnowledgeRepository
 from tests.fakes import make_chunk
 
 pytestmark = pytest.mark.integration
 
+TEST_DIM = "3"
+
+
+async def alembic(monkeypatch: pytest.MonkeyPatch, action: str, revision: str) -> None:
+    monkeypatch.setenv("DATABASE_URL", os.environ["TEST_DATABASE_URL"])
+    monkeypatch.setenv("EMBEDDING_DIM", TEST_DIM)
+    # env.py сам вызывает asyncio.run, поэтому из async-теста запускаем его в отдельном потоке
+    await asyncio.to_thread(getattr(command, action), Config("alembic.ini"), revision)
+
+
+async def table_exists(engine_url: str) -> bool:
+    engine = create_async_engine(engine_url)
+    async with engine.connect() as conn:
+        exists = await conn.scalar(text("SELECT to_regclass('knowledge_chunks') IS NOT NULL"))
+    await engine.dispose()
+    return bool(exists)
+
 
 @pytest.fixture
-async def repo() -> AsyncIterator[PgVectorKnowledgeRepository]:
+async def repo(monkeypatch: pytest.MonkeyPatch) -> AsyncIterator[PgVectorKnowledgeRepository]:
+    # Схему создаёт миграция, а не create_all: тесты заодно проверяют, что миграция рабочая
+    await alembic(monkeypatch, "downgrade", "base")
+    await alembic(monkeypatch, "upgrade", "head")
     engine = create_async_engine(os.environ["TEST_DATABASE_URL"])
-    async with engine.begin() as conn:
-        await conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
-        await conn.run_sync(Base.metadata.drop_all)
-        await conn.run_sync(Base.metadata.create_all)
     yield PgVectorKnowledgeRepository(async_sessionmaker(engine, expire_on_commit=False))
     await engine.dispose()
+
+
+async def test_migrations_roundtrip(monkeypatch: pytest.MonkeyPatch) -> None:
+    url = os.environ["TEST_DATABASE_URL"]
+    await alembic(monkeypatch, "upgrade", "head")
+    assert await table_exists(url)
+    await alembic(monkeypatch, "downgrade", "base")
+    assert not await table_exists(url)
+    await alembic(monkeypatch, "upgrade", "head")
+    assert await table_exists(url)
+
+
+async def test_migration_creates_hnsw_index(
+    repo: PgVectorKnowledgeRepository,
+) -> None:
+    engine = create_async_engine(os.environ["TEST_DATABASE_URL"])
+    async with engine.connect() as conn:
+        indexdef = await conn.scalar(
+            text(
+                "SELECT indexdef FROM pg_indexes "
+                "WHERE indexname = 'ix_knowledge_chunks_embedding'"
+            )
+        )
+    await engine.dispose()
+    assert indexdef is not None
+    assert "hnsw" in indexdef
+    assert "vector_cosine_ops" in indexdef
 
 
 async def test_search_orders_by_cosine_similarity(repo: PgVectorKnowledgeRepository) -> None:
@@ -3296,7 +3356,7 @@ async def test_delete_documents(repo: PgVectorKnowledgeRepository) -> None:
 - [ ] **Step 4: Запустить в Docker — FAIL**
 
 Run: `make test-integration`
-Expected: сборка образа проходит; тесты FAIL — `ModuleNotFoundError: No module named 'app.adapters.outbound.postgres'`. Если сборка `python:3.14-slim` падает на колёсах зависимостей — сменить на `python:3.13-slim` и отметить в README.
+Expected: сборка образа проходит; тесты FAIL — `ModuleNotFoundError: No module named 'app.adapters.outbound.postgres'` (или `alembic.util.exc.CommandError: ... script_location`). Если сборка `python:3.14-slim` падает на колёсах зависимостей — сменить на `python:3.13-slim` и отметить в README.
 
 - [ ] **Step 5: Реализация репозитория и миграций**
 
@@ -3560,7 +3620,7 @@ def downgrade() -> None:
 - [ ] **Step 6: PASS в Docker**
 
 Run: `make test-integration && make test && make lint`
-Expected: 4 integration passed; все unit/api passed; линтеры чистые.
+Expected: 6 integration passed (4 репозитория + цикл миграций + HNSW-индекс); все unit/api passed; линтеры чистые.
 
 - [ ] **Step 7: Commit**
 
