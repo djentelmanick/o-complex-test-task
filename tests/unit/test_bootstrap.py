@@ -1,10 +1,18 @@
+import json
 import ssl
 
+import httpx
+import respx
+from cryptography.fernet import Fernet
+
+from app.adapters.outbound.amocrm.gateway import AmoCRMGateway
+from app.adapters.outbound.amocrm.tokens import TokenPair
 from app.adapters.outbound.fake.embedder import FakeEmbedder
 from app.adapters.outbound.fake.llm import FakeLLM
 from app.adapters.outbound.gigachat.client import GigaChatEmbedder, GigaChatLLM
 from app.adapters.outbound.local.embedder import LocalEmbedder
-from app.bootstrap import build_container, make_ssl_context
+from app.application.handle_incoming import HandleIncomingMessageUseCase
+from app.bootstrap import amocrm_webhook_registration, build_container, make_ssl_context
 from app.config import Settings
 
 API_KEY = "test-api-key-0123456789abcdef"
@@ -66,3 +74,60 @@ async def test_warm_up_loads_local_embeddings_only() -> None:
     await warm_up(Counting(8), make(llm_provider="fake", embedding_provider="local"))
     await warm_up(Counting(8), make(llm_provider="fake", embedding_provider="fake"))
     assert Counting.calls == 1
+
+
+def amocrm(**overrides: object) -> Settings:
+    return make(
+        llm_provider="fake",
+        embedding_provider="fake",
+        crm_provider="amocrm",
+        amocrm_subdomain="demo",
+        amocrm_client_id="cid",
+        amocrm_client_secret="csecret",
+        amocrm_token_key=Fernet.generate_key().decode(),
+        amocrm_webhook_secret="w" * 32,
+        **overrides,
+    )
+
+
+async def test_amocrm_provider_wires_gateway_and_handler() -> None:
+    async with build_container(amocrm()) as container:
+        assert isinstance(container.crm, AmoCRMGateway)
+        assert isinstance(container.handle_incoming, HandleIncomingMessageUseCase)
+        assert container.amocrm is not None
+
+
+async def test_mock_provider_has_no_amocrm_parts() -> None:
+    async with build_container(make(llm_provider="fake", embedding_provider="fake")) as c:
+        assert c.handle_incoming is None
+        assert c.amocrm is None
+
+
+async def test_webhook_is_registered_and_removed(respx_mock: respx.MockRouter) -> None:
+    settings = amocrm(amocrm_tunnel_metrics_url="http://tunnel:2000/quicktunnel")
+    respx_mock.get("http://tunnel:2000/quicktunnel").mock(
+        return_value=httpx.Response(200, json={"hostname": "abc.trycloudflare.com"})
+    )
+    register = respx_mock.post("https://demo.amocrm.ru/api/v4/webhooks").mock(
+        return_value=httpx.Response(201, json={})
+    )
+    unregister = respx_mock.delete("https://demo.amocrm.ru/api/v4/webhooks").mock(
+        return_value=httpx.Response(204)
+    )
+    async with build_container(settings) as container:
+        assert container.amocrm is not None
+        container.amocrm.oauth._cached = TokenPair("t", "r", 1e12)
+        async with amocrm_webhook_registration(container.amocrm, settings):
+            assert register.call_count == 1
+        assert unregister.call_count == 1
+    destination = json.loads(register.calls[0].request.content)["destination"]
+    assert destination == "https://abc.trycloudflare.com/integrations/amocrm/webhook/" + "w" * 32
+
+
+async def test_registration_failure_does_not_stop_startup(respx_mock: respx.MockRouter) -> None:
+    settings = amocrm(amocrm_tunnel_metrics_url="http://tunnel:2000/quicktunnel")
+    respx_mock.get("http://tunnel:2000/quicktunnel").mock(return_value=httpx.Response(503))
+    async with build_container(settings) as container:
+        assert container.amocrm is not None
+        async with amocrm_webhook_registration(container.amocrm, settings, attempts=1):
+            pass

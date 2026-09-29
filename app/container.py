@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 
+from app.adapters.outbound.amocrm.tools import AmoCRMTools
 from app.application.answer_inquiry import AnswerInquiryUseCase
 from app.application.handle_incoming import HandleIncomingMessageUseCase
 from app.application.ingest_knowledge import IngestKnowledgeUseCase
@@ -13,3 +14,4 @@ class Container:
     crm: CRMGateway
     knowledge: KnowledgeRepository
     handle_incoming: HandleIncomingMessageUseCase | None = None
+    amocrm: AmoCRMTools | None = None
