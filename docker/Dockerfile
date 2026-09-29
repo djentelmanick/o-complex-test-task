@@ -23,10 +23,9 @@ RUN useradd --create-home --uid 10001 app
 COPY --from=deps /opt/venv /opt/venv
 ENV PATH=/opt/venv/bin:$PATH
 WORKDIR /app
-COPY alembic.ini ./
+COPY pyproject.toml ./
 COPY app ./app
-COPY kb ./kb
-COPY fixtures ./fixtures
+COPY data ./data
 COPY docker/entrypoint.sh ./entrypoint.sh
 USER app
 EXPOSE 8000
@@ -35,7 +34,6 @@ ENTRYPOINT ["./entrypoint.sh"]
 FROM runtime AS test
 USER root
 COPY --from=deps-dev /opt/venv /opt/venv
-COPY pyproject.toml ./
 COPY tests ./tests
 RUN chown -R app:app /app
 USER app

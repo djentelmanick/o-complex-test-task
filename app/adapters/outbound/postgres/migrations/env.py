@@ -1,6 +1,6 @@
 import asyncio
+import logging
 import os
-from logging.config import fileConfig
 
 from alembic import context
 from sqlalchemy import pool
@@ -9,9 +9,9 @@ from sqlalchemy.ext.asyncio import create_async_engine
 
 from app.adapters.outbound.postgres.models import Base
 
-config = context.config
-if config.config_file_name is not None:
-    fileConfig(config.config_file_name, disable_existing_loggers=False)
+# Конфиг Alembic живёт в pyproject.toml, alembic.ini с секцией логирования нет
+logging.basicConfig(level=logging.INFO, format="%(levelname)-5.5s [%(name)s] %(message)s")
+logging.getLogger("sqlalchemy.engine").setLevel(logging.WARNING)
 
 target_metadata = Base.metadata
 

@@ -4,7 +4,7 @@ from pathlib import Path
 from app.adapters.outbound.kb_files import load_markdown_documents
 from app.application.chunking import chunk_document
 
-KB_DIR = Path("kb")
+KB_DIR = Path("data/kb")
 
 
 def test_kb_has_all_articles() -> None:

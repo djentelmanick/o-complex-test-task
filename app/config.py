@@ -27,8 +27,8 @@ class Settings(BaseSettings):
     dialog_max_messages: int = Field(default=10, gt=0)
     rate_limit: str = "10/minute"
 
-    kb_dir: Path = Path("kb")
-    crm_fixture_path: Path = Path("fixtures/crm_dialogs.json")
+    kb_dir: Path = Path("data/kb")
+    crm_fixture_path: Path = Path("data/crm_dialogs.json")
 
     @model_validator(mode="after")
     def _require_gigachat_key(self) -> Self:

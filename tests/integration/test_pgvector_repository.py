@@ -20,7 +20,7 @@ async def alembic(monkeypatch: pytest.MonkeyPatch, action: str, revision: str) -
     monkeypatch.setenv("DATABASE_URL", os.environ["TEST_DATABASE_URL"])
     monkeypatch.setenv("EMBEDDING_DIM", TEST_DIM)
     # env.py сам вызывает asyncio.run, поэтому из async-теста запускаем его в отдельном потоке
-    await asyncio.to_thread(getattr(command, action), Config("alembic.ini"), revision)
+    await asyncio.to_thread(getattr(command, action), Config(toml_file="pyproject.toml"), revision)
 
 
 async def table_exists(engine_url: str) -> bool:

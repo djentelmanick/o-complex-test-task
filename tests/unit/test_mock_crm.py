@@ -7,7 +7,7 @@ from app.adapters.outbound.crm.mock import MockCRMGateway
 from app.domain.errors import LeadNotFound
 from app.domain.models import Role
 
-FIXTURE = Path("fixtures/crm_dialogs.json")
+FIXTURE = Path("data/crm_dialogs.json")
 
 
 async def test_loads_demo_leads_from_fixture() -> None:
