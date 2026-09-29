@@ -64,3 +64,12 @@ async def test_tunnel_never_ready(respx_mock: respx.MockRouter) -> None:
     async with httpx.AsyncClient() as http:
         with pytest.raises(CRMUnavailable):
             await resolve_tunnel_url(http, METRICS, attempts=3, delay_s=0, sleep=no_sleep)
+
+
+async def test_tunnel_probe_uses_short_timeout(respx_mock: respx.MockRouter) -> None:
+    route = respx_mock.get(METRICS).mock(
+        return_value=httpx.Response(200, json={"hostname": "abc.trycloudflare.com"})
+    )
+    async with httpx.AsyncClient(timeout=15) as http:
+        await resolve_tunnel_url(http, METRICS, delay_s=0, sleep=no_sleep)
+    assert route.calls[0].request.extensions["timeout"]["connect"] == 2.0

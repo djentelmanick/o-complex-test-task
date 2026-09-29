@@ -8,6 +8,7 @@ from app.domain.errors import CRMUnavailable
 
 WEBHOOK_EVENTS = ["note_lead"]
 WEBHOOK_PATH_PREFIX = "/integrations/amocrm/webhook/"
+_PROBE_TIMEOUT_S = 2.0
 
 
 def webhook_destination(public_url: str, secret: str) -> str:
@@ -38,7 +39,8 @@ async def resolve_tunnel_url(
     # Quick tunnel получает случайный адрес при каждом запуске — узнаём его у cloudflared
     for _ in range(attempts):
         try:
-            response = await http.get(metrics_url)
+            # Туннель поднимается после приложения: не ждём общий таймаут клиента на каждой попытке
+            response = await http.get(metrics_url, timeout=_PROBE_TIMEOUT_S)
             if response.status_code == httpx.codes.OK:
                 hostname = response.json().get("hostname")
                 if hostname:
