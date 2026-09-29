@@ -91,6 +91,7 @@ def _amocrm_tools(
         oauth=oauth,
         gateway=AmoCRMGateway(client),
         registrar=AmoCRMWebhookRegistrar(client),
+        processed_events=PgProcessedEvents(sessionmaker),
     )
 
 
@@ -175,7 +176,7 @@ async def build_container(settings: Settings) -> AsyncIterator[Container]:
                 crm=crm,
                 answer_inquiry=answer_inquiry,
                 publisher=amocrm.gateway,
-                processed_events=PgProcessedEvents(sessionmaker),
+                processed_events=amocrm.processed_events,
             )
 
         yield Container(

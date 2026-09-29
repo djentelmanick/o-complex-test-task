@@ -1,3 +1,4 @@
+import asyncio
 import logging
 from urllib.parse import urlencode
 
@@ -140,3 +141,55 @@ async def test_crm_outage_on_api_is_503() -> None:
         )
     assert response.status_code == 503
     assert "amocrm down" not in response.text
+
+
+async def test_any_proxied_request_reaches_only_the_webhook() -> None:
+    handler = RecordingHandler()
+    proxied = {"X-Forwarded-For": "203.0.113.9"}
+    async with make_client(amocrm_settings(), await container_with(handler)) as client:
+        api = await client.get("/api/v1/leads", headers={**proxied, "X-API-Key": API_KEY})
+        hook = await client.post(HOOK, content=payload((7, 1)), headers={**FORM, **proxied})
+    assert api.status_code == 404
+    assert hook.status_code == 200
+
+
+async def test_webhook_rate_limit_uses_forwarded_client_ip() -> None:
+    handler = RecordingHandler()
+    settings = amocrm_settings(amocrm_webhook_rate_limit="1/minute")
+    async with make_client(settings, await container_with(handler)) as client:
+
+        async def send(forwarded: str) -> int:
+            headers = {**FORM, "X-Forwarded-For": forwarded}
+            response = await client.post(HOOK, content=payload((7, 1)), headers=headers)
+            return response.status_code
+
+        codes = [
+            await send("203.0.113.1"),
+            await send("203.0.113.2, 10.0.0.1"),
+            await send("203.0.113.1"),
+        ]
+    assert codes == [200, 200, 429]
+
+
+class ConcurrencyTrackingHandler:
+    def __init__(self) -> None:
+        self.active = 0
+        self.max_active = 0
+
+    async def execute(self, lead_id: str, message_id: str) -> str:
+        self.active += 1
+        self.max_active = max(self.max_active, self.active)
+        await asyncio.sleep(0.05)
+        self.active -= 1
+        return "processed"
+
+
+async def test_webhook_events_are_processed_one_at_a_time() -> None:
+    handler = ConcurrencyTrackingHandler()
+    container = await container_with(handler)  # type: ignore[arg-type]
+    async with make_client(amocrm_settings(), container) as client:
+        await asyncio.gather(
+            client.post(HOOK, content=payload((7, 1), (7, 2)), headers=FORM),
+            client.post(HOOK, content=payload((8, 3)), headers=FORM),
+        )
+    assert handler.max_active == 1

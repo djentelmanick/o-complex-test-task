@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import re
 import secrets
@@ -35,6 +36,8 @@ def build_amocrm_router(settings: Settings, limiter: Limiter) -> APIRouter:
     if settings.amocrm_webhook_secret is None:
         raise RuntimeError("AMOCRM_WEBHOOK_SECRET is not set")
     expected_secret = settings.amocrm_webhook_secret.get_secret_value().encode()
+    # Бесплатный тариф GigaChat обслуживает один запрос за раз: параллельные ответы получили бы 429
+    processing = asyncio.Semaphore(1)
     router = APIRouter()
 
     @router.post(WEBHOOK_PATH_PREFIX + "{token}", include_in_schema=False)
@@ -54,17 +57,21 @@ def build_amocrm_router(settings: Settings, limiter: Limiter) -> APIRouter:
         events = parse_note_events(form)
         # AmoCRM ждёт ответ за пару секунд, а генерация идёт дольше — обрабатываем после ответа
         for lead_id, note_id in events:
-            background.add_task(_handle_safely, use_case, lead_id, note_id)
+            background.add_task(_handle_safely, processing, use_case, lead_id, note_id)
         return {"accepted": len(events)}
 
     return router
 
 
 async def _handle_safely(
-    use_case: HandleIncomingMessageUseCase, lead_id: str, note_id: str
+    processing: asyncio.Semaphore,
+    use_case: HandleIncomingMessageUseCase,
+    lead_id: str,
+    note_id: str,
 ) -> None:
     try:
-        result = await use_case.execute(lead_id, note_id)
+        async with processing:
+            result = await use_case.execute(lead_id, note_id)
         logger.info(
             "amocrm note processed lead_id=%s note_id=%s result=%s", lead_id, note_id, result
         )

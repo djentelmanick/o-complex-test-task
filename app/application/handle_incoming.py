@@ -11,6 +11,10 @@ logger = logging.getLogger(__name__)
 MAX_MESSAGE_LENGTH = 2000
 
 
+def message_event_key(message_id: str) -> str:
+    return f"crm:message:{message_id}"
+
+
 class HandleResult(StrEnum):
     PROCESSED = "processed"
     DUPLICATE = "duplicate"
@@ -35,7 +39,7 @@ class HandleIncomingMessageUseCase:
 
     async def execute(self, lead_id: str, message_id: str) -> HandleResult:
         # CRM может доставить событие повторно — отвечать клиенту дважды нельзя
-        if not await self._processed_events.first_seen(f"crm:message:{message_id}"):
+        if not await self._processed_events.first_seen(message_event_key(message_id)):
             return HandleResult.DUPLICATE
         try:
             lead = await self._crm.get_lead(lead_id)

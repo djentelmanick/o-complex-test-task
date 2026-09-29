@@ -9,7 +9,7 @@ from app.adapters.outbound.fake.embedder import FakeEmbedder
 from app.application.ingest_knowledge import IngestKnowledgeUseCase
 from app.config import Settings
 from app.domain.models import Role
-from tests.fakes import InMemoryKnowledgeRepository
+from tests.fakes import InMemoryKnowledgeRepository, InMemoryProcessedEvents
 
 
 def test_ingest_command_loads_kb(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
@@ -58,13 +58,14 @@ class FakeGateway:
 
     async def add_message(self, lead_id: str, role: Role, text: str) -> str:
         self.messages.append((lead_id, role, text))
-        return "1"
+        return f"note-{len(self.messages)}"
 
 
 class FakeTools:
     def __init__(self) -> None:
         self.oauth = FakeOAuth()
         self.gateway = FakeGateway()
+        self.processed_events = InMemoryProcessedEvents()
 
 
 def patch_container(monkeypatch: pytest.MonkeyPatch, tools: FakeTools | None) -> None:
@@ -106,3 +107,10 @@ def test_amocrm_seed_creates_demo_leads_with_history(monkeypatch: pytest.MonkeyP
 def test_amocrm_commands_require_amocrm_provider(monkeypatch: pytest.MonkeyPatch) -> None:
     patch_container(monkeypatch, None)
     assert cli.main(["amocrm-say", "1", "x"]) == 1
+
+
+def test_amocrm_seed_does_not_trigger_the_assistant(monkeypatch: pytest.MonkeyPatch) -> None:
+    tools = FakeTools()
+    patch_container(monkeypatch, tools)
+    assert cli.main(["amocrm-seed"]) == 0
+    assert tools.processed_events.keys == {f"crm:message:note-{i}" for i in range(1, 10)}

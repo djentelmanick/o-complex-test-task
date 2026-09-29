@@ -36,16 +36,30 @@ async def resolve_tunnel_url(
     delay_s: float = 2.0,
     sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
 ) -> str:
-    # Quick tunnel получает случайный адрес при каждом запуске — узнаём его у cloudflared
+    # Адрес туннеля может меняться между запусками — спрашиваем его у агента туннеля
     for _ in range(attempts):
         try:
             # Туннель поднимается после приложения: не ждём общий таймаут клиента на каждой попытке
             response = await http.get(metrics_url, timeout=_PROBE_TIMEOUT_S)
             if response.status_code == httpx.codes.OK:
-                hostname = response.json().get("hostname")
-                if hostname:
-                    return f"https://{hostname}"
+                public_url = _public_url(response.json())
+                if public_url:
+                    return public_url
         except (httpx.HTTPError, ValueError):
             pass
         await sleep(delay_s)
-    raise CRMUnavailable("cloudflared tunnel did not report a public hostname")
+    raise CRMUnavailable("tunnel agent did not report a public URL")
+
+
+def _public_url(data: object) -> str | None:
+    if not isinstance(data, dict):
+        return None
+    # cloudflared quick tunnel: {"hostname": "..."}
+    if data.get("hostname"):
+        return f"https://{data['hostname']}"
+    # ngrok agent API: {"tunnels": [{"public_url": "https://..."}]}
+    for tunnel in data.get("tunnels") or []:
+        url = tunnel.get("public_url") if isinstance(tunnel, dict) else None
+        if isinstance(url, str) and url.startswith("https://"):
+            return url
+    return None

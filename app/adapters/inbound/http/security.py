@@ -102,12 +102,17 @@ async def _too_large_response(scope: Scope, receive: Receive, send: Send) -> Non
     await response(scope, receive, send)
 
 
-_TUNNEL_HEADERS = ("cf-connecting-ip", "cf-ray")
+# Эти заголовки добавляют туннели (ngrok, cloudflared); прямые локальные запросы их не несут
+_PROXY_HEADERS = ("x-forwarded-for", "cf-connecting-ip", "cf-ray")
 
 
 def client_ip(request: Request) -> str:
-    # За туннелем все запросы приходят с адреса cloudflared — настоящий IP в заголовке Cloudflare
-    return request.headers.get("cf-connecting-ip") or get_remote_address(request)
+    # За туннелем все запросы приходят с адреса агента туннеля — настоящий IP в заголовках прокси
+    if cf_ip := request.headers.get("cf-connecting-ip"):
+        return cf_ip
+    if forwarded := request.headers.get("x-forwarded-for"):
+        return forwarded.split(",")[0].strip()
+    return get_remote_address(request)
 
 
 class TunnelGuardMiddleware:
@@ -120,7 +125,7 @@ class TunnelGuardMiddleware:
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         if scope["type"] == "http" and not scope["path"].startswith(self.allowed_prefix):
             headers = Headers(scope=scope)
-            if any(name in headers for name in _TUNNEL_HEADERS):
+            if any(name in headers for name in _PROXY_HEADERS):
                 request_id = scope.get("state", {}).get("request_id")
                 response = JSONResponse(
                     status_code=404, content={"detail": "Not Found", "request_id": request_id}

@@ -73,3 +73,21 @@ async def test_tunnel_probe_uses_short_timeout(respx_mock: respx.MockRouter) -> 
     async with httpx.AsyncClient(timeout=15) as http:
         await resolve_tunnel_url(http, METRICS, delay_s=0, sleep=no_sleep)
     assert route.calls[0].request.extensions["timeout"]["connect"] == 2.0
+
+
+async def test_tunnel_url_from_ngrok_agent_api(respx_mock: respx.MockRouter) -> None:
+    api = "http://tunnel:4040/api/tunnels"
+    respx_mock.get(api).mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "tunnels": [
+                    {"proto": "https", "public_url": "https://abc.ngrok-free.app"},
+                ]
+            },
+        )
+    )
+    async with httpx.AsyncClient() as http:
+        assert await resolve_tunnel_url(http, api, delay_s=0, sleep=no_sleep) == (
+            "https://abc.ngrok-free.app"
+        )

@@ -7,6 +7,7 @@ from typing import Any
 
 from app.adapters.outbound.crm.mock import MockCRMGateway
 from app.adapters.outbound.kb_files import load_markdown_documents
+from app.application.handle_incoming import message_event_key
 from app.bootstrap import build_container
 from app.config import Settings
 from app.domain.errors import DomainError
@@ -43,7 +44,9 @@ async def _amocrm_seed(settings: Settings, tools: Any) -> None:
     for lead in demo:
         lead_id = await tools.gateway.create_lead(lead.name)
         for message in lead.dialog:
-            await tools.gateway.add_message(lead_id, message.role, message.text)
+            note_id = await tools.gateway.add_message(lead_id, message.role, message.text)
+            # Демо-история — не новые обращения: помечаем их обработанными до прихода вебхуков
+            await tools.processed_events.first_seen(message_event_key(note_id))
         print(f"{lead_id}\t{lead.name}")
 
 

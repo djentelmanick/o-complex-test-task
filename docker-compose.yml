@@ -44,13 +44,10 @@ services:
 
   tunnel:
     profiles: ["amocrm"]
-    image: cloudflare/cloudflared:latest
-    # QUIC (UDP) часто режется в WSL и офисных сетях — HTTP/2 идёт поверх обычного TCP
-    command: ["tunnel", "--no-autoupdate", "--protocol", "http2", "--metrics", "0.0.0.0:2000", "--url", "http://app:8000"]
-    # Встроенный DNS Docker Desktop не отдаёт SRV-записи, по которым cloudflared ищет edge Cloudflare
-    dns:
-      - 1.1.1.1
-      - 1.0.0.1
+    image: ngrok/ngrok:latest
+    command: ["http", "app:8000", "--log", "stdout"]
+    environment:
+      NGROK_AUTHTOKEN: ${NGROK_AUTHTOKEN:-}
     depends_on:
       - app
     restart: unless-stopped
