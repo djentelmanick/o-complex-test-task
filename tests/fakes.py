@@ -2,6 +2,7 @@ import math
 from collections.abc import Sequence
 from typing import Any
 
+from app.adapters.outbound.amocrm.tokens import TokenPair
 from app.application.ports import Embedder, LLMResult
 from app.domain.models import AssistantAnswer, KnowledgeChunk, RetrievedChunk
 
@@ -102,3 +103,16 @@ class InMemoryProcessedEvents:
             return False
         self.keys.add(key)
         return True
+
+
+class InMemoryTokenStore:
+    def __init__(self, pair: TokenPair | None = None) -> None:
+        self.pair = pair
+        self.saved: list[TokenPair] = []
+
+    async def load(self) -> TokenPair | None:
+        return self.pair
+
+    async def save(self, pair: TokenPair) -> None:
+        self.pair = pair
+        self.saved.append(pair)
