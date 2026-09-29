@@ -9,6 +9,7 @@
 - `make test-integration`: тесты с Postgres и вшитой моделью эмбеддингов, только в Docker.
 - `make lint`: `ruff check`, `ruff format --check`, `mypy app`.
 - `make ingest`: перезагрузить базу знаний. `make migrate` / `make revision m="..."`: Alembic.
+- AmoCRM: `make up-amocrm` (стек + туннель cloudflared), `make amocrm-auth code=…`, `make amocrm-seed`, `make client-says lead=… text="…"`.
 
 Перед коммитом должны быть зелёными `poetry run pytest`, `poetry run ruff check .`, `poetry run ruff format --check .`, `poetry run mypy app`. Если менялись БД, миграции или Docker, дополнительно прогнать `make test-integration`.
 
@@ -36,3 +37,5 @@
 - TLS к GigaChat всегда с проверкой, корневой сертификат лежит в `docker/certs/`.
 - `EMBEDDING_DIM` фиксируется миграцией `0001`. Смена модели эмбеддингов требует пересоздать таблицу.
 - При изменении `data/kb` ingest пересчитывает только изменённые статьи: хэш учитывает содержимое и имя модели.
+- В AmoCRM ассистент реагирует только на примечания `sms_in` и пишет результат как `service_message`. Вебхук отвечает 200 сразу, а обработка идёт в фоне, с дедупликацией по id примечания.
+- Через туннель (запросы с заголовками Cloudflare) доступен только путь вебхука, это обеспечивает `TunnelGuardMiddleware`.

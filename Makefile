@@ -1,10 +1,10 @@
-.PHONY: up down logs test test-integration lint ingest migrate downgrade revision
+.PHONY: up down logs test test-integration lint ingest migrate downgrade revision up-amocrm amocrm-auth amocrm-seed client-says
 
 up:
 	docker compose up --build -d
 
 down:
-	docker compose down
+	docker compose --profile amocrm down
 
 logs:
 	docker compose logs -f app
@@ -32,3 +32,15 @@ revision:
 	docker compose --profile test run --rm --build \
 		-v ./app/adapters/outbound/postgres/migrations/versions:/app/app/adapters/outbound/postgres/migrations/versions \
 		test alembic revision --autogenerate -m "$(m)"
+
+up-amocrm:
+	docker compose --profile amocrm up --build -d
+
+amocrm-auth:
+	docker compose exec app python -m app.adapters.inbound.cli amocrm-auth "$(code)"
+
+amocrm-seed:
+	docker compose exec app python -m app.adapters.inbound.cli amocrm-seed
+
+client-says:
+	docker compose exec app python -m app.adapters.inbound.cli amocrm-say "$(lead)" "$(text)"

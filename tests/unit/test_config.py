@@ -75,7 +75,7 @@ def test_amocrm_provider_requires_settings(missing: str) -> None:
         make(llm_provider="fake", **{**AMOCRM, missing: None})
 
 
-@pytest.mark.parametrize("subdomain", ["evil.com/x", "Demo", "a b", "x" * 64])
+@pytest.mark.parametrize("subdomain", ["evil.com/x", "a b", "x" * 64, "demo.kommo.com"])
 def test_amocrm_subdomain_is_restricted(subdomain: str) -> None:
     with pytest.raises(ValidationError):
         make(llm_provider="fake", **{**AMOCRM, "amocrm_subdomain": subdomain})
@@ -84,3 +84,11 @@ def test_amocrm_subdomain_is_restricted(subdomain: str) -> None:
 def test_short_webhook_secret_is_rejected() -> None:
     with pytest.raises(ValidationError):
         make(llm_provider="fake", **{**AMOCRM, "amocrm_webhook_secret": "short"})
+
+
+@pytest.mark.parametrize(
+    "raw", ["demo-shop", "demo-shop.amocrm.ru", "https://demo-shop.amocrm.ru/", " Demo-Shop "]
+)
+def test_amocrm_subdomain_is_normalized(raw: str) -> None:
+    settings = make(llm_provider="fake", **{**AMOCRM, "amocrm_subdomain": raw})
+    assert settings.amocrm_subdomain == "demo-shop"

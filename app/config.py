@@ -1,7 +1,7 @@
 from pathlib import Path
 from typing import Literal, Self
 
-from pydantic import Field, SecretStr, model_validator
+from pydantic import Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -52,6 +52,15 @@ class Settings(BaseSettings):
                 "GIGACHAT_AUTH_KEY is required when LLM_PROVIDER or EMBEDDING_PROVIDER is gigachat"
             )
         return self
+
+    @field_validator("amocrm_subdomain", mode="before")
+    @classmethod
+    def _normalize_subdomain(cls, value: object) -> object:
+        # В .env часто вставляют адрес целиком — оставляем только имя аккаунта
+        if not isinstance(value, str):
+            return value
+        host = value.strip().lower().removeprefix("https://").removeprefix("http://")
+        return host.rstrip("/").removesuffix(".amocrm.ru")
 
     @model_validator(mode="after")
     def _require_amocrm_settings(self) -> Self:
