@@ -11,7 +11,12 @@ from starlette.datastructures import MutableHeaders
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
-from app.domain.errors import KnowledgeBaseUnavailable, LeadNotFound, LLMUnavailable
+from app.domain.errors import (
+    CRMUnavailable,
+    KnowledgeBaseUnavailable,
+    LeadNotFound,
+    LLMUnavailable,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -100,6 +105,11 @@ async def _knowledge_unavailable(request: Request, exc: Exception) -> JSONRespon
     return error_response(request, 503, "База знаний недоступна, попробуйте позже")
 
 
+async def _crm_unavailable(request: Request, exc: Exception) -> JSONResponse:
+    logger.error("CRM unavailable: %s", exc)
+    return error_response(request, 503, "CRM временно недоступна, попробуйте позже")
+
+
 async def _http_error(request: Request, exc: Exception) -> JSONResponse:
     http_exc = cast(StarletteHTTPException, exc)
     return error_response(
@@ -122,6 +132,7 @@ def install_error_handlers(app: FastAPI) -> None:
     app.add_exception_handler(LeadNotFound, _lead_not_found)
     app.add_exception_handler(LLMUnavailable, _llm_unavailable)
     app.add_exception_handler(KnowledgeBaseUnavailable, _knowledge_unavailable)
+    app.add_exception_handler(CRMUnavailable, _crm_unavailable)
     app.add_exception_handler(RateLimitExceeded, _rate_limited)
     app.add_exception_handler(StarletteHTTPException, _http_error)
     app.add_exception_handler(RequestValidationError, _validation_error)

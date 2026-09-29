@@ -6,8 +6,8 @@ from fastapi import FastAPI
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from slowapi import Limiter
-from slowapi.util import get_remote_address
 
+from app.adapters.inbound.http.amocrm import build_amocrm_router
 from app.adapters.inbound.http.errors import (
     RequestIdMiddleware,
     UnhandledErrorMiddleware,
@@ -18,7 +18,10 @@ from app.adapters.inbound.http.security import (
     MAX_BODY_BYTES,
     BodySizeLimitMiddleware,
     SecurityHeadersMiddleware,
+    TunnelGuardMiddleware,
+    client_ip,
 )
+from app.adapters.outbound.amocrm.webhooks import WEBHOOK_PATH_PREFIX
 from app.config import Settings
 from app.container import Container
 
@@ -36,12 +39,14 @@ def create_app(settings: Settings, container_factory: ContainerFactory) -> FastA
 
     app = FastAPI(title="O-complex Inquiry Assistant", version="0.1.0", lifespan=lifespan)
 
-    limiter = Limiter(key_func=get_remote_address)
+    limiter = Limiter(key_func=client_ip)
     app.state.limiter = limiter
     install_error_handlers(app)
 
     app.include_router(build_service_router())
     app.include_router(build_api_router(settings, limiter))
+    if settings.crm_provider == "amocrm":
+        app.include_router(build_amocrm_router(settings, limiter))
     app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
     @app.get("/", include_in_schema=False)
@@ -52,6 +57,7 @@ def create_app(settings: Settings, container_factory: ContainerFactory) -> FastA
     # ответ 500 прошёл через security-заголовки и получил X-Request-ID
     app.add_middleware(UnhandledErrorMiddleware)
     app.add_middleware(BodySizeLimitMiddleware, max_bytes=MAX_BODY_BYTES)
+    app.add_middleware(TunnelGuardMiddleware, allowed_prefix=WEBHOOK_PATH_PREFIX)
     app.add_middleware(SecurityHeadersMiddleware)
     app.add_middleware(RequestIdMiddleware)
     return app

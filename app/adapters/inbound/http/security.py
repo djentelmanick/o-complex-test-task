@@ -4,7 +4,9 @@ from collections.abc import Awaitable, Callable
 from fastapi import HTTPException, Security
 from fastapi.security import APIKeyHeader
 from pydantic import SecretStr
+from slowapi.util import get_remote_address
 from starlette.datastructures import Headers, MutableHeaders
+from starlette.requests import Request
 from starlette.responses import JSONResponse
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
@@ -98,3 +100,31 @@ async def _too_large_response(scope: Scope, receive: Receive, send: Send) -> Non
         status_code=413, content={"detail": "Слишком большой запрос", "request_id": request_id}
     )
     await response(scope, receive, send)
+
+
+_TUNNEL_HEADERS = ("cf-connecting-ip", "cf-ray")
+
+
+def client_ip(request: Request) -> str:
+    # За туннелем все запросы приходят с адреса cloudflared — настоящий IP в заголовке Cloudflare
+    return request.headers.get("cf-connecting-ip") or get_remote_address(request)
+
+
+class TunnelGuardMiddleware:
+    """Через публичный туннель доступен только вебхук: демо-страница и API остаются локальными."""
+
+    def __init__(self, app: ASGIApp, allowed_prefix: str) -> None:
+        self.app = app
+        self.allowed_prefix = allowed_prefix
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] == "http" and not scope["path"].startswith(self.allowed_prefix):
+            headers = Headers(scope=scope)
+            if any(name in headers for name in _TUNNEL_HEADERS):
+                request_id = scope.get("state", {}).get("request_id")
+                response = JSONResponse(
+                    status_code=404, content={"detail": "Not Found", "request_id": request_id}
+                )
+                await response(scope, receive, send)
+                return
+        await self.app(scope, receive, send)
