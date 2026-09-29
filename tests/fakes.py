@@ -3,7 +3,7 @@ from collections.abc import Sequence
 from typing import Any
 
 from app.application.ports import Embedder, LLMResult
-from app.domain.models import KnowledgeChunk, RetrievedChunk
+from app.domain.models import AssistantAnswer, KnowledgeChunk, RetrievedChunk
 
 
 def _cosine(a: Sequence[float], b: Sequence[float]) -> float:
@@ -79,3 +79,26 @@ async def seed(
     for doc_id, doc_chunks in by_doc.items():
         vectors = await embedder.embed([c.content for c in doc_chunks])
         await repo.replace_document(doc_id, "hash", doc_chunks, vectors)
+
+
+class RecordingPublisher:
+    def __init__(self) -> None:
+        self.published: list[tuple[str, AssistantAnswer]] = []
+        self.unavailable: list[str] = []
+
+    async def publish(self, lead_id: str, answer: AssistantAnswer) -> None:
+        self.published.append((lead_id, answer))
+
+    async def publish_unavailable(self, lead_id: str) -> None:
+        self.unavailable.append(lead_id)
+
+
+class InMemoryProcessedEvents:
+    def __init__(self) -> None:
+        self.keys: set[str] = set()
+
+    async def first_seen(self, key: str) -> bool:
+        if key in self.keys:
+            return False
+        self.keys.add(key)
+        return True

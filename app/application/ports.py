@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 from typing import Any, Protocol
 
-from app.domain.models import KnowledgeChunk, Lead, RetrievedChunk, TokenUsage
+from app.domain.models import AssistantAnswer, KnowledgeChunk, Lead, RetrievedChunk, TokenUsage
 
 
 @dataclass(frozen=True, slots=True)
@@ -46,3 +46,13 @@ class LLMClient(Protocol):
     async def complete_structured(
         self, system: str, user: str, function_name: str, schema: dict[str, Any]
     ) -> LLMResult: ...
+
+
+class AnswerPublisher(Protocol):
+    async def publish(self, lead_id: str, answer: AssistantAnswer) -> None: ...
+
+    async def publish_unavailable(self, lead_id: str) -> None: ...
+
+
+class ProcessedEvents(Protocol):
+    async def first_seen(self, key: str) -> bool: ...

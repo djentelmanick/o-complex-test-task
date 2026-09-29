@@ -179,3 +179,13 @@ async def test_without_client_messages_only_the_inquiry_is_embedded() -> None:
     await use_case.execute(Inquiry(lead_id="lead-empty", message="Как принимать цеолит курсом?"))
 
     assert embedder.calls == [["Как принимать цеолит курсом?"]]
+
+
+async def test_answer_uses_given_dialog_without_crm_lookup() -> None:
+    llm = ScriptedLLM([ok([])])
+    use_case = await make_use_case(llm)
+    dialog = [DialogMessage(Role.CLIENT, "Раньше брал Zeolite Standard")]
+    answer = await use_case.answer("Как принимать цеолит?", dialog)
+    assert answer.fallback is False
+    _, user_prompt = llm.calls[0]
+    assert "Раньше брал Zeolite Standard" in user_prompt

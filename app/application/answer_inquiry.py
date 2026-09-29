@@ -1,4 +1,5 @@
 import logging
+from collections.abc import Sequence
 
 from app.application.output import ANSWER_SCHEMA, FUNCTION_NAME, fallback_answer, parse_answer
 from app.application.ports import CRMGateway, Embedder, KnowledgeRepository, LLMClient
@@ -46,9 +47,12 @@ class AnswerInquiryUseCase:
 
     async def execute(self, inquiry: Inquiry) -> AssistantAnswer:
         lead = await self._crm.get_lead(inquiry.lead_id)
-        dialog = lead.dialog[-self._dialog_max_messages :]
-        retrieved = await self._retrieve(inquiry.message, dialog)
-        user_prompt = build_user_prompt(inquiry.message, dialog, retrieved)
+        return await self.answer(inquiry.message, lead.dialog)
+
+    async def answer(self, message: str, dialog: Sequence[DialogMessage]) -> AssistantAnswer:
+        recent = tuple(dialog)[-self._dialog_max_messages :]
+        retrieved = await self._retrieve(message, recent)
+        user_prompt = build_user_prompt(message, recent, retrieved)
 
         usage = TokenUsage()
         for attempt in range(1, _MAX_ATTEMPTS + 1):
