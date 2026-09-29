@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>O-complex · Ассистент менеджера</title>
+  <link rel="stylesheet" href="/static/styles.css">
+  <script src="/static/app.js" defer></script>
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">O-complex <span>ассистент менеджера</span></div>
+    <form id="auth-form" class="auth">
+      <input id="api-key" type="password" placeholder="API-ключ" autocomplete="off" required>
+      <button type="submit">Подключиться</button>
+    </form>
+  </header>
+
+  <main class="layout">
+    <section class="panel">
+      <div class="panel-head">
+        <h2>Диалог в CRM</h2>
+        <select id="lead-select" disabled aria-label="Лид"></select>
+      </div>
+      <ol id="dialog" class="dialog">
+        <li class="placeholder">Введите API-ключ, чтобы загрузить лидов</li>
+      </ol>
+      <form id="inquiry-form" class="composer">
+        <textarea id="message" maxlength="2000" rows="3" placeholder="Новое сообщение клиента…" required disabled></textarea>
+        <div class="composer-row">
+          <span id="counter" class="muted">0 / 2000</span>
+          <button id="send" type="submit" disabled>Сгенерировать ответ</button>
+        </div>
+      </form>
+    </section>
+
+    <section class="results">
+      <article class="card">
+        <div class="card-head">
+          <h2>Ответ клиенту</h2>
+          <button id="copy" type="button" class="ghost" disabled>Скопировать</button>
+        </div>
+        <p id="client-reply" class="text muted">Здесь появится ответ клиенту</p>
+        <div id="sources-block" class="sources" hidden>
+          <h3>Источники из базы знаний</h3>
+          <ul id="sources"></ul>
+        </div>
+      </article>
+
+      <article class="card card-hint">
+        <div class="card-head"><h2>Подсказка менеджеру</h2></div>
+        <p id="manager-hint" class="text muted">Здесь появится идея допродажи</p>
+      </article>
+
+      <p id="meta" class="meta"></p>
+      <p id="error" class="error" role="alert" hidden></p>
+    </section>
+  </main>
+</body>
+</html>

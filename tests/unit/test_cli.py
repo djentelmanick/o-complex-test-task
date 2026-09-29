@@ -1,0 +1,162 @@
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+from pathlib import Path
+
+import pytest
+
+from app.adapters.inbound import cli
+from app.adapters.outbound.fake.embedder import FakeEmbedder
+from app.application.ingest_knowledge import IngestKnowledgeUseCase
+from app.config import Settings
+from app.domain.models import Role
+from tests.fakes import InMemoryKnowledgeRepository, InMemoryProcessedEvents
+
+
+def test_ingest_command_loads_kb(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    (tmp_path / "doc.md").write_text("# Doc\n\n## Раздел\n\nтекст", encoding="utf-8")
+    repo = InMemoryKnowledgeRepository()
+
+    class FakeContainer:
+        ingest_knowledge = IngestKnowledgeUseCase(
+            repo, FakeEmbedder(8), embedding_model="fake", embedding_dim=8
+        )
+
+    @asynccontextmanager
+    async def fake_build(_: Settings) -> AsyncIterator[FakeContainer]:
+        yield FakeContainer()
+
+    monkeypatch.setattr(cli, "build_container", fake_build)
+    monkeypatch.setenv("APP_API_KEY", "test-api-key-0123456789abcdef")
+    monkeypatch.setenv("LLM_PROVIDER", "fake")
+    monkeypatch.setenv("KB_DIR", str(tmp_path))
+
+    assert cli.main(["ingest"]) == 0
+    assert set(repo.docs) == {"doc"}
+
+
+def test_unknown_command_exits_with_usage_error() -> None:
+    with pytest.raises(SystemExit):
+        cli.main(["drop-everything"])
+
+
+class FakeOAuth:
+    def __init__(self) -> None:
+        self.codes: list[str] = []
+
+    async def exchange_code(self, code: str) -> None:
+        self.codes.append(code)
+
+
+class FakeGateway:
+    def __init__(self, log: list[str]) -> None:
+        self.log = log
+        self.leads: list[str] = []
+        self.messages: list[tuple[str, Role, str]] = []
+
+    async def create_lead(self, name: str) -> str:
+        self.log.append("create_lead")
+        self.leads.append(name)
+        return str(len(self.leads))
+
+    async def add_message(self, lead_id: str, role: Role, text: str) -> str:
+        self.messages.append((lead_id, role, text))
+        return f"note-{len(self.messages)}"
+
+
+class FakeRegistrar:
+    def __init__(self, log: list[str]) -> None:
+        self.log = log
+
+    async def destinations_with_secret(self, secret: str) -> list[str]:
+        return ["https://hook"]
+
+    async def unregister(self, destination: str) -> None:
+        self.log.append(f"unregister {destination}")
+
+    async def register(self, destination: str) -> None:
+        self.log.append(f"register {destination}")
+
+
+class FakeTools:
+    def __init__(self) -> None:
+        self.log: list[str] = []
+        self.oauth = FakeOAuth()
+        self.gateway = FakeGateway(self.log)
+        self.processed_events = InMemoryProcessedEvents()
+        self.registrar = FakeRegistrar(self.log)
+
+
+def patch_container(monkeypatch: pytest.MonkeyPatch, tools: FakeTools | None) -> None:
+    class FakeContainer:
+        amocrm = tools
+
+    @asynccontextmanager
+    async def fake_build(_: Settings) -> AsyncIterator[FakeContainer]:
+        yield FakeContainer()
+
+    monkeypatch.setattr(cli, "build_container", fake_build)
+    monkeypatch.setenv("APP_API_KEY", "test-api-key-0123456789abcdef")
+    monkeypatch.setenv("LLM_PROVIDER", "fake")
+
+
+def test_amocrm_auth_exchanges_code(monkeypatch: pytest.MonkeyPatch) -> None:
+    tools = FakeTools()
+    patch_container(monkeypatch, tools)
+    assert cli.main(["amocrm-auth", "the-code"]) == 0
+    assert tools.oauth.codes == ["the-code"]
+
+
+def test_amocrm_say_adds_client_message(monkeypatch: pytest.MonkeyPatch) -> None:
+    tools = FakeTools()
+    patch_container(monkeypatch, tools)
+    assert cli.main(["amocrm-say", "123", "Как принимать?"]) == 0
+    assert tools.gateway.messages == [("123", Role.CLIENT, "Как принимать?")]
+
+
+def test_amocrm_seed_creates_demo_leads_with_history(monkeypatch: pytest.MonkeyPatch) -> None:
+    tools = FakeTools()
+    patch_container(monkeypatch, tools)
+    assert cli.main(["amocrm-seed"]) == 0
+    assert len(tools.gateway.leads) == 3
+    assert tools.gateway.messages[0][1] is Role.CLIENT
+    assert len(tools.gateway.messages) == 9
+
+
+def test_amocrm_commands_require_amocrm_provider(monkeypatch: pytest.MonkeyPatch) -> None:
+    patch_container(monkeypatch, None)
+    assert cli.main(["amocrm-say", "1", "x"]) == 1
+
+
+def test_amocrm_seed_does_not_trigger_the_assistant(monkeypatch: pytest.MonkeyPatch) -> None:
+    tools = FakeTools()
+    patch_container(monkeypatch, tools)
+    assert cli.main(["amocrm-seed"]) == 0
+    assert tools.processed_events.keys == {f"crm:message:note-{i}" for i in range(1, 10)}
+
+
+def test_amocrm_seed_pauses_our_webhook(monkeypatch: pytest.MonkeyPatch) -> None:
+    tools = FakeTools()
+    patch_container(monkeypatch, tools)
+    monkeypatch.setenv("AMOCRM_WEBHOOK_SECRET", "w" * 32)
+    assert cli.main(["amocrm-seed"]) == 0
+    assert tools.log[0] == "unregister https://hook"
+    assert tools.log[-1] == "register https://hook"
+    assert tools.log.count("create_lead") == 3
+
+
+def test_new_lead_prints_only_its_id(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    tools = FakeTools()
+    patch_container(monkeypatch, tools)
+    assert cli.main(["amocrm-new-lead", "Марина"]) == 0
+    assert capsys.readouterr().out == "1\n"
+    assert tools.gateway.leads == ["Марина"]
+    assert tools.gateway.messages == []
+
+
+def test_manager_reply_adds_outgoing_message(monkeypatch: pytest.MonkeyPatch) -> None:
+    tools = FakeTools()
+    patch_container(monkeypatch, tools)
+    assert cli.main(["amocrm-reply", "7", "Есть формат поменьше"]) == 0
+    assert tools.gateway.messages == [("7", Role.MANAGER, "Есть формат поменьше")]
