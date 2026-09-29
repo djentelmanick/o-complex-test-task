@@ -15,6 +15,8 @@ DEMO_PHONE = "+70000000000"
 _ROLES = {"sms_in": Role.CLIENT, "sms_out": Role.MANAGER}
 _NOTE_TYPES = {Role.CLIENT: "sms_in", Role.MANAGER: "sms_out"}
 _PAGE_SIZE = "250"
+# Обычный service_message склеивает текст в одну строку, extended сохраняет переносы и подпись
+_ANSWER_NOTE_TYPE = "extended_service_message"
 
 
 def format_answer_note(answer: AssistantAnswer) -> str:
@@ -50,11 +52,11 @@ class AmoCRMGateway:
 
     async def publish(self, lead_id: str, answer: AssistantAnswer) -> None:
         text = UNAVAILABLE_TEXT if answer.fallback else format_answer_note(answer)
-        await self._add_note(lead_id, "service_message", {"service": SERVICE_NAME, "text": text})
+        await self._add_note(lead_id, _ANSWER_NOTE_TYPE, {"service": SERVICE_NAME, "text": text})
 
     async def publish_unavailable(self, lead_id: str) -> None:
         await self._add_note(
-            lead_id, "service_message", {"service": SERVICE_NAME, "text": UNAVAILABLE_TEXT}
+            lead_id, _ANSWER_NOTE_TYPE, {"service": SERVICE_NAME, "text": UNAVAILABLE_TEXT}
         )
 
     async def create_lead(self, name: str) -> str:

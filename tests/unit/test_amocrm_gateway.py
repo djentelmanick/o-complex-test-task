@@ -114,7 +114,7 @@ async def test_publish_writes_service_message(respx_mock: respx.MockRouter) -> N
         await gateway(http).publish("7", ANSWER)
     [body] = json.loads(route.calls[0].request.content)
     assert body["entity_id"] == 7
-    assert body["note_type"] == "service_message"
+    assert body["note_type"] == "extended_service_message"
     assert body["params"] == {"service": SERVICE_NAME, "text": format_answer_note(ANSWER)}
 
 
