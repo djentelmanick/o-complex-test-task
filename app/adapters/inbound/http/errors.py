@@ -1,5 +1,6 @@
 import logging
 import uuid
+from collections.abc import Mapping
 from typing import Any, cast
 
 from fastapi import FastAPI, Request
@@ -42,7 +43,7 @@ def error_response(
     request: Request,
     status_code: int,
     detail: str,
-    headers: dict[str, str] | None = None,
+    headers: Mapping[str, str] | None = None,
     **extra: Any,
 ) -> JSONResponse:
     content = {"detail": detail, "request_id": getattr(request.state, "request_id", None), **extra}
