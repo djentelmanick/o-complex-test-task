@@ -117,3 +117,32 @@ async def test_network_error_is_crm_unavailable(respx_mock: respx.MockRouter) ->
     async with httpx.AsyncClient() as http:
         with pytest.raises(CRMUnavailable):
             await make(http, store, [NOW]).access_token()
+
+
+async def test_newer_tokens_from_another_process_win_over_stale_cache(
+    respx_mock: respx.MockRouter,
+) -> None:
+    now = [NOW]
+    store = InMemoryTokenStore(TokenPair("a1", "r1", NOW + 3600))
+    async with httpx.AsyncClient() as http:
+        oauth = make(http, store, now)
+        assert await oauth.access_token() == "a1"
+        # CLI в другом процессе обновил токены, а кэш приложения тем временем истёк
+        store.pair = TokenPair("a2", "r2", NOW + 90000)
+        now[0] = NOW + 7200
+        assert await oauth.access_token() == "a2"
+    assert respx_mock.calls.call_count == 0
+
+
+async def test_refresh_race_with_another_process_is_recovered(
+    respx_mock: respx.MockRouter,
+) -> None:
+    store = InMemoryTokenStore(TokenPair("a1", "r1", NOW - 1))
+
+    def rotated_elsewhere(_: httpx.Request) -> httpx.Response:
+        store.pair = TokenPair("a9", "r9", NOW + 86400)
+        return httpx.Response(400, json={"hint": "Token has been revoked"})
+
+    respx_mock.post(TOKEN_URL).mock(side_effect=rotated_elsewhere)
+    async with httpx.AsyncClient() as http:
+        assert await make(http, store, [NOW]).access_token() == "a9"

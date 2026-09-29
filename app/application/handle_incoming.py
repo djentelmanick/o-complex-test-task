@@ -1,14 +1,19 @@
 import logging
 from enum import StrEnum
 
-from app.application.answer_inquiry import AnswerInquiryUseCase
+from app.application.answer_inquiry import MAX_MESSAGE_LENGTH, AnswerInquiryUseCase
 from app.application.ports import AnswerPublisher, CRMGateway, ProcessedEvents
 from app.domain.errors import KnowledgeBaseUnavailable, LeadNotFound, LLMUnavailable
 from app.domain.models import Role
 
 logger = logging.getLogger(__name__)
 
-MAX_MESSAGE_LENGTH = 2000
+__all__ = [
+    "MAX_MESSAGE_LENGTH",
+    "HandleIncomingMessageUseCase",
+    "HandleResult",
+    "message_event_key",
+]
 
 
 def message_event_key(message_id: str) -> str:

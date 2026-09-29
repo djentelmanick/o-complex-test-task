@@ -114,3 +114,28 @@ async def test_llm_outage_publishes_unavailable_note() -> None:
     assert await use_case.execute("100", "3") is HandleResult.UNAVAILABLE
     assert publisher.unavailable == ["100"]
     assert publisher.published == []
+
+
+async def test_long_history_messages_are_truncated_too() -> None:
+    lead = Lead(
+        id="200",
+        name="Длинная история",
+        dialog=(
+            DialogMessage(Role.CLIENT, "ж" * 50_000, id="1"),
+            DialogMessage(Role.CLIENT, "Как принимать?", id="2"),
+        ),
+    )
+    llm = ScriptedLLM([OK])
+    crm = MockCRMGateway([lead])
+    answer_inquiry = AnswerInquiryUseCase(
+        crm, FakeEmbedder(dim=32), InMemoryKnowledgeRepository(), llm, min_score=0.0
+    )
+    use_case = HandleIncomingMessageUseCase(
+        crm=crm,
+        answer_inquiry=answer_inquiry,
+        publisher=RecordingPublisher(),
+        processed_events=InMemoryProcessedEvents(),
+    )
+    await use_case.execute("200", "2")
+    _, prompt = llm.calls[0]
+    assert "ж" * (MAX_MESSAGE_LENGTH + 1) not in prompt

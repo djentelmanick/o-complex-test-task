@@ -2,7 +2,6 @@ import asyncio
 import logging
 import time
 from collections.abc import Callable
-from dataclasses import replace
 from typing import Any
 
 import httpx
@@ -41,37 +40,54 @@ class AmoCRMOAuth:
         self._clock = clock
         self._refresh_margin_s = refresh_margin_s
         self._cached: TokenPair | None = None
+        self._rejected_token: str | None = None
         self._lock = asyncio.Lock()
 
     async def exchange_code(self, code: str) -> None:
         pair = await self._request({"grant_type": "authorization_code", "code": code})
         await self._store.save(pair)
         self._cached = pair
+        self._rejected_token = None
 
     async def access_token(self) -> str:
         if self._cached is not None and self._is_fresh(self._cached):
             return self._cached.access_token
         async with self._lock:
-            pair = self._cached or await self._store.load()
+            # Источник истины — хранилище: токены мог обновить другой процесс (CLI) или запрос,
+            # который держал lock до нас; кэш этого процесса к тому моменту уже устарел
+            pair = await self._store.load()
             if pair is None:
                 raise AmoCRMAuthError(f"AmoCRM is not authorized; {_REAUTH_HINT}")
-            # Пока ждали lock, токен мог обновить другой запрос
-            if not self._is_fresh(pair):
+            if not self._is_fresh(pair) or pair.access_token == self._rejected_token:
                 pair = await self._refresh(pair)
             self._cached = pair
+            self._rejected_token = None
             return pair.access_token
 
     def invalidate(self) -> None:
         if self._cached is not None:
-            self._cached = replace(self._cached, expires_at=0.0)
+            self._rejected_token = self._cached.access_token
+            self._cached = None
 
     def _is_fresh(self, pair: TokenPair) -> bool:
         return self._clock() < pair.expires_at - self._refresh_margin_s
 
     async def _refresh(self, pair: TokenPair) -> TokenPair:
-        new_pair = await self._request(
-            {"grant_type": "refresh_token", "refresh_token": pair.refresh_token}
-        )
+        try:
+            new_pair = await self._request(
+                {"grant_type": "refresh_token", "refresh_token": pair.refresh_token}
+            )
+        except AmoCRMAuthError:
+            # Другой процесс мог обновить пару между нашим чтением и запросом:
+            # тогда наш refresh-токен уже сгорел, а свежая пара лежит в хранилище
+            current = await self._store.load()
+            if (
+                current is not None
+                and current.refresh_token != pair.refresh_token
+                and self._is_fresh(current)
+            ):
+                return current
+            raise
         # Старый refresh-токен уже сгорел: новую пару сохраняем до того, как ей пользоваться
         await self._store.save(new_pair)
         logger.info("AmoCRM access token refreshed")

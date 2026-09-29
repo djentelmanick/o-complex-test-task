@@ -16,6 +16,7 @@ from app.domain.models import (
 
 logger = logging.getLogger(__name__)
 
+MAX_MESSAGE_LENGTH = 2000
 _MAX_ATTEMPTS = 2
 _CONTEXT_LIMIT = 2
 _CONTEXT_CLIENT_MESSAGES = 3
@@ -50,7 +51,12 @@ class AnswerInquiryUseCase:
         return await self.answer(inquiry.message, lead.dialog)
 
     async def answer(self, message: str, dialog: Sequence[DialogMessage]) -> AssistantAnswer:
-        recent = tuple(dialog)[-self._dialog_max_messages :]
+        # История из CRM пишется клиентом: без ограничения одно огромное сообщение раздувает
+        # каждый следующий промпт и ломает ответы по сделке
+        recent = tuple(
+            DialogMessage(m.role, m.text[:MAX_MESSAGE_LENGTH], m.id)
+            for m in tuple(dialog)[-self._dialog_max_messages :]
+        )
         retrieved = await self._retrieve(message, recent)
         user_prompt = build_user_prompt(message, recent, retrieved)
 
