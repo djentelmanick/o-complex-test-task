@@ -33,6 +33,17 @@ class Settings(BaseSettings):
     kb_dir: Path = Path("data/kb")
     crm_fixture_path: Path = Path("data/crm_dialogs.json")
 
+    crm_provider: Literal["mock", "amocrm"] = "mock"
+    amocrm_subdomain: str | None = Field(default=None, pattern=r"^[a-z0-9-]{1,63}$")
+    amocrm_client_id: str | None = None
+    amocrm_client_secret: SecretStr | None = None
+    amocrm_redirect_uri: str = "https://example.com"
+    amocrm_token_key: SecretStr | None = None
+    amocrm_webhook_secret: SecretStr | None = Field(default=None, min_length=32)
+    amocrm_tunnel_metrics_url: str | None = None
+    amocrm_webhook_rate_limit: str = "60/minute"
+    amocrm_timeout_s: float = 15.0
+
     @model_validator(mode="after")
     def _require_gigachat_key(self) -> Self:
         uses_gigachat = "gigachat" in (self.llm_provider, self.embedding_provider)
@@ -40,4 +51,20 @@ class Settings(BaseSettings):
             raise ValueError(
                 "GIGACHAT_AUTH_KEY is required when LLM_PROVIDER or EMBEDDING_PROVIDER is gigachat"
             )
+        return self
+
+    @model_validator(mode="after")
+    def _require_amocrm_settings(self) -> Self:
+        if self.crm_provider != "amocrm":
+            return self
+        required = (
+            "amocrm_subdomain",
+            "amocrm_client_id",
+            "amocrm_client_secret",
+            "amocrm_token_key",
+            "amocrm_webhook_secret",
+        )
+        missing = [name.upper() for name in required if getattr(self, name) is None]
+        if missing:
+            raise ValueError(f"CRM_PROVIDER=amocrm requires: {', '.join(missing)}")
         return self

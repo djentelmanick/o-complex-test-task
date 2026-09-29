@@ -11,6 +11,7 @@ class Role(StrEnum):
 class DialogMessage:
     role: Role
     text: str
+    id: str = ""
 
 
 @dataclass(frozen=True, slots=True)

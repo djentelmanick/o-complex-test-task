@@ -20,3 +20,7 @@ class EmbeddingDimensionMismatch(DomainError):
 
 class KnowledgeBaseUnavailable(DomainError):
     pass
+
+
+class CRMUnavailable(DomainError):
+    pass

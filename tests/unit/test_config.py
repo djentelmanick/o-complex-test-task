@@ -43,3 +43,44 @@ def test_defaults_match_spec() -> None:
 def test_gigachat_embeddings_require_auth_key() -> None:
     with pytest.raises(ValidationError, match="GIGACHAT_AUTH_KEY"):
         make(llm_provider="fake", embedding_provider="gigachat")
+
+
+AMOCRM = {
+    "crm_provider": "amocrm",
+    "amocrm_subdomain": "demo-shop",
+    "amocrm_client_id": "client-id",
+    "amocrm_client_secret": "client-secret",
+    "amocrm_token_key": "k" * 44,
+    "amocrm_webhook_secret": "w" * 32,
+}
+
+
+def test_crm_provider_defaults_to_mock() -> None:
+    settings = make(llm_provider="fake")
+    assert settings.crm_provider == "mock"
+    assert settings.amocrm_redirect_uri == "https://example.com"
+    assert settings.amocrm_webhook_rate_limit == "60/minute"
+
+
+def test_amocrm_provider_accepts_full_settings() -> None:
+    settings = make(llm_provider="fake", **AMOCRM)
+    assert settings.amocrm_subdomain == "demo-shop"
+
+
+@pytest.mark.parametrize(
+    "missing", ["amocrm_subdomain", "amocrm_client_secret", "amocrm_token_key"]
+)
+def test_amocrm_provider_requires_settings(missing: str) -> None:
+    with pytest.raises(ValidationError, match=missing.upper()):
+        make(llm_provider="fake", **{**AMOCRM, missing: None})
+
+
+@pytest.mark.parametrize("subdomain", ["evil.com/x", "Demo", "a b", "x" * 64])
+def test_amocrm_subdomain_is_restricted(subdomain: str) -> None:
+    with pytest.raises(ValidationError):
+        make(llm_provider="fake", **{**AMOCRM, "amocrm_subdomain": subdomain})
+
+
+def test_short_webhook_secret_is_rejected() -> None:
+    with pytest.raises(ValidationError):
+        make(llm_provider="fake", **{**AMOCRM, "amocrm_webhook_secret": "short"})
