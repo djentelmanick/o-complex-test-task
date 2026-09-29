@@ -66,6 +66,11 @@ async def _create_demo_leads(settings: Settings, tools: Any) -> None:
         print(f"{lead_id}\t{lead.name}")
 
 
+async def _print_new_lead(tools: Any, name: str) -> None:
+    # Печатаем только id, чтобы его можно было забрать в переменную: ID=$(make -s new-lead ...)
+    print(await tools.gateway.create_lead(name))
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="inquiry-assistant")
     commands = parser.add_subparsers(dest="command", required=True)
@@ -76,6 +81,11 @@ def main(argv: list[str] | None = None) -> int:
     say = commands.add_parser("amocrm-say", help="add an incoming client message to a lead")
     say.add_argument("lead_id")
     say.add_argument("text")
+    reply = commands.add_parser("amocrm-reply", help="add an outgoing manager message to a lead")
+    reply.add_argument("lead_id")
+    reply.add_argument("text")
+    new_lead = commands.add_parser("amocrm-new-lead", help="create an empty lead, print its id")
+    new_lead.add_argument("name")
     args = parser.parse_args(argv)
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -95,6 +105,15 @@ def main(argv: list[str] | None = None) -> int:
                     lambda t: t.gateway.add_message(args.lead_id, Role.CLIENT, args.text),
                 )
             )
+        elif args.command == "amocrm-reply":
+            asyncio.run(
+                _with_amocrm(
+                    settings,
+                    lambda t: t.gateway.add_message(args.lead_id, Role.MANAGER, args.text),
+                )
+            )
+        elif args.command == "amocrm-new-lead":
+            asyncio.run(_with_amocrm(settings, lambda t: _print_new_lead(t, args.name)))
     except DomainError as exc:
         logger.error("%s failed: %s", args.command, exc)
         return 1

@@ -142,3 +142,21 @@ def test_amocrm_seed_pauses_our_webhook(monkeypatch: pytest.MonkeyPatch) -> None
     assert tools.log[0] == "unregister https://hook"
     assert tools.log[-1] == "register https://hook"
     assert tools.log.count("create_lead") == 3
+
+
+def test_new_lead_prints_only_its_id(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    tools = FakeTools()
+    patch_container(monkeypatch, tools)
+    assert cli.main(["amocrm-new-lead", "Марина"]) == 0
+    assert capsys.readouterr().out == "1\n"
+    assert tools.gateway.leads == ["Марина"]
+    assert tools.gateway.messages == []
+
+
+def test_manager_reply_adds_outgoing_message(monkeypatch: pytest.MonkeyPatch) -> None:
+    tools = FakeTools()
+    patch_container(monkeypatch, tools)
+    assert cli.main(["amocrm-reply", "7", "Есть формат поменьше"]) == 0
+    assert tools.gateway.messages == [("7", Role.MANAGER, "Есть формат поменьше")]

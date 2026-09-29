@@ -1,4 +1,4 @@
-.PHONY: up down logs test test-integration lint ingest migrate downgrade revision up-amocrm amocrm-auth amocrm-seed client-says
+.PHONY: up down logs test test-integration lint ingest migrate downgrade revision up-amocrm amocrm-auth amocrm-seed client-says new-lead manager-says
 
 up:
 	docker compose up --build -d
@@ -44,3 +44,9 @@ amocrm-seed:
 
 client-says:
 	docker compose exec app python -m app.adapters.inbound.cli amocrm-say "$(lead)" "$(text)"
+
+new-lead:
+	@docker compose exec -T app python -m app.adapters.inbound.cli amocrm-new-lead "$(name)" 2>/dev/null
+
+manager-says:
+	docker compose exec app python -m app.adapters.inbound.cli amocrm-reply "$(lead)" "$(text)"

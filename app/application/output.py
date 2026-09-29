@@ -44,11 +44,14 @@ ANSWER_SCHEMA: dict[str, Any] = {
 # GigaChat иногда оставляет в конце строки хвост JSON-разметки (`.,`, `.\n",`)
 # или копирует экранированные теги из промпта (`‹/client_reply›`)
 _TRAILING_ARTIFACTS = re.compile(r"(?:\s*‹/?[a-z_]+›|[\s,])+$")
+# ...и служебный хвост параметров генерации, например `.formating=markdown`
+_FORMAT_DIRECTIVE = re.compile(r"(?<=[.!?…])?\s*format+ing=\w+\s*$", re.IGNORECASE)
 
 
 def _strip_artifacts(text: str) -> str:
     # Переводы строк иногда приходят экранированными дважды — литералом `\n`
     text = _TRAILING_ARTIFACTS.sub("", text.replace("\\n", "\n"))
+    text = _TRAILING_ARTIFACTS.sub("", _FORMAT_DIRECTIVE.sub("", text))
     # Непарная кавычка в конце — остаток JSON-строки, парную («"Zeolite Max"») не трогаем
     if text.endswith('"') and text.count('"') % 2 == 1:
         text = _TRAILING_ARTIFACTS.sub("", text[:-1])

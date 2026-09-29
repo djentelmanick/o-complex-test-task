@@ -9,7 +9,7 @@
 - `make test-integration`: тесты с Postgres и вшитой моделью эмбеддингов, только в Docker.
 - `make lint`: `ruff check`, `ruff format --check`, `mypy app`.
 - `make ingest`: перезагрузить базу знаний. `make migrate` / `make revision m="..."`: Alembic.
-- AmoCRM: `make up-amocrm` (стек + туннель cloudflared), `make amocrm-auth code=…`, `make amocrm-seed`, `make client-says lead=… text="…"`.
+- AmoCRM: `make up-amocrm` (стек + туннель cloudflared), `make amocrm-auth code=…`, `make amocrm-seed`, `make client-says lead=… text="…"`, `make manager-says lead=… text="…"`, `ID=$(make -s new-lead name="…")`.
 
 Перед коммитом должны быть зелёными `poetry run pytest`, `poetry run ruff check .`, `poetry run ruff format --check .`, `poetry run mypy app`. Если менялись БД, миграции или Docker, дополнительно прогнать `make test-integration`.
 
